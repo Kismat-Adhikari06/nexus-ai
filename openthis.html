@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexu — All Phases & Phase 5 Plan</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    line-height: 1.7;
+    padding: 40px 20px;
+  }
+  .container { max-width: 800px; margin: 0 auto; }
+
+  h1 { font-size: 2.2rem; color: #58a6ff; margin-bottom: 8px; }
+  h2 { font-size: 1.5rem; color: #d29922; margin-top: 40px; margin-bottom: 16px;
+       border-bottom: 1px solid #21262d; padding-bottom: 8px; }
+  h3 { font-size: 1.15rem; color: #e6edf3; margin-top: 28px; margin-bottom: 8px; }
+  h4 { color: #58a6ff; font-size: 0.95rem; margin: 12px 0 4px; }
+  p { margin-bottom: 16px; }
+
+  .subtitle { color: #8b949e; font-size: 1rem; margin-bottom: 32px; }
+
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600; margin-right: 6px;
+  }
+  .badge-done { background: #1a3a2a; color: #3fb950; border: 1px solid #3fb950; }
+  .badge-next { background: #1a2a3a; color: #58a6ff; border: 1px solid #58a6ff; }
+
+  .tool-grid { display: grid; gap: 12px; margin: 20px 0; }
+  .tool-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 16px 20px;
+  }
+  .tool-card h4 {
+    color: #58a6ff; font-size: 0.95rem; margin-bottom: 4px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+  }
+  .tool-card .action { color: #3fb950; font-size: 0.82rem; margin-bottom: 6px; }
+  .tool-card p { color: #8b949e; font-size: 0.9rem; margin-bottom: 0; }
+  .tool-card .params { color: #d29922; font-size: 0.8rem; margin-top: 4px; }
+
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px; margin: 12px 0;
+  }
+
+  .code {
+    background: #1c2128; border: 1px solid #30363d; border-radius: 6px;
+    padding: 14px 18px; font-family: 'Cascadia Code', monospace;
+    font-size: 0.88rem; color: #e6edf3; overflow-x: auto; margin: 12px 0;
+  }
+  .code .hl { color: #58a6ff; }
+  .code .g { color: #3fb950; }
+  .code .o { color: #d29922; }
+  .code .dim { color: #484f58; }
+
+  ul { margin: 8px 0 16px 24px; }
+  ul li { margin-bottom: 6px; }
+
+  .step { margin: 20px 0; padding-left: 16px; border-left: 3px solid #30363d; }
+  .step h4 { color: #d29922; }
+  .step.done { border-left-color: #3fb950; }
+  .step.done h4 { color: #3fb950; }
+
+  .footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #21262d;
+            color: #484f58; font-size: 0.85rem; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Nexu</h1>
+<p class="subtitle">AI Desktop Assistant for Windows — Full Pipeline</p>
+
+<!-- ==================== PHASE 1 ==================== -->
+<div class="step done">
+<h4> Phase 1 — Voice Loop</h4>
+<p><span class="badge badge-done">DONE</span> Core conversation: hold F4 → speak → hear response.</p>
+<ul>
+  <li><strong>config.py</strong> — API keys, mic settings, paths</li>
+  <li><strong>stt.py</strong> — record mic audio, transcribe via Groq whisper-large-v3-turbo</li>
+  <li><strong>ai.py</strong> — AI brain (Groq primary, fallback: OpenRouter → Gemini → LM Studio). Streaming support.</li>
+  <li><strong>tts.py</strong> — edge-tts voice output via pygame, sentence-by-sentence with interupt (F4 barge-in)</li>
+  <li><strong>main.py</strong> — System tray overlay window (acrylic), F4 voice mode, F3 text mode</li>
+</ul>
+</div>
+
+<!-- ==================== PHASE 2 ==================== -->
+<div class="step done">
+<h4> Phase 2 — Tool System</h4>
+<p><span class="badge badge-done">DONE</span> AI emits structured JSON tool calls; Python executor runs them.</p>
+<ul>
+  <li><strong>tools/system.py</strong> — launch_app, get_battery, get_cpu, get_ram, set_volume, notify, run_command</li>
+  <li><strong>tools/files.py</strong> — open_file, open_in_vscode, search_files, get_file_info, list_directory (fuzzy path matching)</li>
+  <li><strong>tools/browser.py</strong> — open_url, search_web</li>
+  <li><strong>tools/executor.py</strong> — tool registry, JSON parsing, execution dispatch</li>
+</ul>
+</div>
+
+<!-- ==================== PHASE 3 ==================== -->
+<div class="step done">
+<h4> Phase 3 — Memory</h4>
+<p><span class="badge badge-done">DONE</span> Persistent memory in <code>~/.nexu/memory.db</code> using SQLite only.</p>
+<ul>
+  <li><strong>memory/store.py</strong> — Key-value facts: save/get/get_all/delete (uni portal, name, projects)</li>
+  <li><strong>memory/vector.py</strong> — Conversation history with FTS5 full-text search. Past conversations auto-injected into AI context</li>
+</ul>
+</div>
+
+<!-- ==================== PHASE 4 ==================== -->
+<div class="step done">
+<h4> Phase 4 — WhatsApp + Browser Automation</h4>
+<p><span class="badge badge-done">DONE</span> Playwright-based automation for real-world interaction.</p>
+<ul>
+  <li><strong>tools/whatsapp.py</strong> — send_message (by name or number), read_recent_messages, list_contacts. Session persists across restarts via saved storage state. QR scan on first run.</li>
+  <li><strong>tools/browser_automation.py</strong> — AI-guided browser navigation: extracts DOM text → Gemini decides what to click → loops until goal is met. Auto-login detection with saved credentials.</li>
+</ul>
+</div>
+
+<!-- ==================== PHASE 5 ==================== -->
+<div class="step">
+<h4> Phase 5 — Polish &amp; Packaging</h4>
+<p><span class="badge badge-next">NEXT</span> Make it feel like a real product — robust, fast, packaged as a single .exe.</p>
+
+<p>Below is the complete step-by-step plan. Each step builds on the previous one.</p>
+
+<h3>Step 1: Error Handling &amp; Graceful Degradation</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Nothing crashes silently. Every failure has a user-friendly fallback.</p>
+  <ul>
+    <li><strong>Microphone unavailable:</strong> Detect at startup, show "Mic not found" notification, fall back to text-only (F3) mode</li>
+    <li><strong>AI API down:</strong> If Groq fails, auto-fall back through OpenRouter → Gemini → LM Studio (already partially done — needs better per-provider timeout handling)</li>
+    <li><strong>Network offline:</strong> Detect connectivity before API calls. If offline, switch to LM Studio local mode, limit available tools to offline-only</li>
+    <li><strong>Tool execution fails:</strong> Catch per-tool exceptions and return friendly messages like "I couldn't open that file — does it still exist?" instead of raw tracebacks</li>
+    <li><strong>No API keys:</strong> Show a configuraton window on first run if no API keys are set, instead of silently failing</li>
+  </ul>
+</div>
+
+<h3>Step 2: Voice Improvements — VAD &amp; Noise Gate</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Stop holding F4. Just talk naturally.</p>
+  <ul>
+    <li><strong>Voice Activity Detection (VAD):</strong> Replace the current "hold F4 to record" with a "press F4 once to toggle listening". Use <code>webrtcvad</code> or a simple energy-based VAD to detect when speech ends and auto-stop recording</li>
+    <li><strong>Noise gate:</strong> Apply a pre-recording filter that ignores ambient noise below a configurable threshold. Prevents "silence transcription" where the AI tries to interpret fan/AC noise</li>
+    <li><strong>Result:</strong> Press F4 once → start talking → stop talking → automatic processing. Feels like a walkie-talkie, not a push-to-hold</li>
+  </ul>
+</div>
+
+<h3>Step 3: Interruption — Barge-In</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Cut Nexu off mid-sentence and it listens immediately.</p>
+  <ul>
+    <li>Currently F4 while speaking stops TTS and starts listening (already works in <code>main.py</code>)</li>
+    <li><strong>Add voice barge-in:</strong> While AI is speaking, monitor mic for loud input (above a threshold). If detected, auto-stop TTS and start recording without requiring an F4 press</li>
+    <li>Add configurable "interruption sensitivity" setting</li>
+  </ul>
+</div>
+
+<h3>Step 4: Wake Word (Optional)</h3>
+<div class="card">
+  <p><strong>Goal:</strong> "Hey Nexu" activates the assistant without any key press.</p>
+  <ul>
+    <li>Use a lightweight wake word engine — two options:
+      <ul>
+        <li><strong>Porcupine</strong> (by Picovoice) — runs offline, ~2MB RAM, <code>pip install pvporcupine</code>. Free tier allows custom wake words</li>
+        <li><strong>OpenWakeWord</strong> — MIT licensed, smaller model, can train custom phrases</li>
+      </ul>
+    </li>
+    <li>Wake word runs in a background thread. On detection, triggers the same audio pipeline as F4</li>
+    <li>Make it togglable (hotkey-only mode vs wake word mode) via config</li>
+  </ul>
+</div>
+
+<h3>Step 5: Configuration UI</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Change settings without editing .env files.</p>
+  <ul>
+    <li>Build a simple settings window using Tkinter (already a dependency via pygame/Tkinter):</li>
+    <li>Settings panel:
+      <ul>
+        <li>Hotkey selector (F4 / Caps Lock / F3 / etc.)</li>
+        <li>AI provider dropdown (Groq / Gemini / OpenRouter / LM Studio)</li>
+        <li>API key fields (masked input)</li>
+        <li>Microphone device selector</li>
+        <li>Wake word on/off toggle</li>
+        <li>Voice speed/pitch</li>
+      </ul>
+    </li>
+    <li>Migrate from <code>config.py</code> hardcoded constants to a <code>config.json</code> file in <code>~/.nexu/</code></li>
+    <li>Show settings window on first run if no API keys configured</li>
+  </ul>
+</div>
+
+<h3>Step 6: Logging &amp; Debugging</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Track down issues without staring at a console.</p>
+  <ul>
+    <li>Create <code>logs/</code> directory under <code>~/.nexu/</code> with daily log files</li>
+    <li>Replace all <code>print()</code> calls with Python's <code>logging</code> module (with timestamps, levels)</li>
+    <li>Add <code>--debug</code> CLI flag to show full logs in console</li>
+    <li>Save audio snippets from failed STT attempts for debugging (with auto-cleanup after 24h)</li>
+    <li>Log AI API response times and tool execution times to a CSV for performance tracking</li>
+  </ul>
+</div>
+
+<h3>Step 7: Performance Optimization</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Idle under 200MB RAM, startup under 3 seconds.</p>
+  <ul>
+    <li><strong>Lazy imports:</strong> Only import tool modules when their first tool call is made, not at startup</li>
+    <li><strong>PyAudio warm-up:</strong> Pre-initialize PyAudio in background thread during startup</li>
+    <li><strong>Model preloading:</strong> Pre-load whisper model on app start (already partially done with <code>preload_model()</code>, but currently a no-op since STT uses Groq API not local whisper)</li>
+    <li><strong>Connection keepalive:</strong> Maintain persistent HTTP sessions for Groq/Gemini APIs to avoid TLS handshake overhead</li>
+    <li><strong>Profile memory:</strong> Use <code>tracemalloc</code> or <code>psutil</code> to measure and optimize memory usage</li>
+  </ul>
+</div>
+
+<h3>Step 8: Extra Tools</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Give Nexu more useful abilities.</p>
+  <ul>
+    <li><strong>Clipboard:</strong> <code>clipboard_read()</code> / <code>clipboard_copy(text)</code> — read or set clipboard content</li>
+    <li><strong>Screenshot:</strong> <code>take_screenshot()</code> — capture screen and save to temp file. Can pair with AI to "what's on my screen?"</li>
+    <li><strong>PDF reader:</strong> <code>read_pdf(path, pages)</code> — extract text from PDF via <code>PyMuPDF</code> or <code>pdfplumber</code></li>
+    <li><strong>Volume mute/unmute:</strong> Quick toggle for mute</li>
+    <li><strong>Wifi info:</strong> Show connected SSID, signal strength</li>
+  </ul>
+</div>
+
+<h3>Step 9: Packaging — PyInstaller .exe</h3>
+<div class="card">
+  <p><strong>Goal:</strong> One .exe file. No Python required. Double-click to run.</p>
+  <ul>
+    <li>Create a <code>build.py</code> script that runs PyInstaller with all necessary hidden imports</li>
+    <li>Handle PyInstaller's quirks:
+      <ul>
+        <li><code>--hidden-import</code> for dynamic imports (pyaudio, plyer, pycaw, comtypes, etc.)</li>
+        <li>Bundle <code>.env</code> as default config or embed defaults in the binary</li>
+        <li>Set <code>--onefile --windowed --uac-admin</code> if needed for volume control</li>
+        <li>Use <code>--icon=nexu.ico</code> for a proper icon</li>
+      </ul>
+    </li>
+    <li>Test the .exe on a clean Windows VM to catch missing DLLs or dependencies</li>
+  </ul>
+</div>
+
+<h3>Step 10: Windows Auto-Start &amp; Installer</h3>
+<div class="card">
+  <p><strong>Goal:</strong> Nexu starts when Windows starts. Clean installer for distribution.</p>
+  <ul>
+    <li><strong>Auto-start:</strong> Add a registry entry in <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code> with a "Launch at startup" toggle in the config UI</li>
+    <li><strong>Installer:</strong> Use <strong>Inno Setup</strong> or <strong>NSIS</strong> to create a proper installer:
+      <ul>
+        <li>Copies .exe to Program Files</li>
+        <li>Creates Start Menu shortcut</li>
+        <li>Optionally adds to PATH for CLI access (<code>nexu</code> command)</li>
+        <li>Optionally adds desktop shortcut</li>
+      </ul>
+    </li>
+  </ul>
+</div>
+
+<h3>Step 11: System Tray &amp; Menu</h3>
+<div class="card">
+  <p><strong>Goal:</strong> A proper tray icon with right-click options.</p>
+  <ul>
+    <li>Add an icon (static or animated during listening/speaking)</li>
+    <li>Right-click menu:
+      <ul>
+        <li>Open Nexu (show overlay)</li>
+        <li>Settings (open config window)</li>
+        <li>Toggle wake word</li>
+        <li>Mode: Voice / Text / Both</li>
+        <li>Exit</li>
+      </ul>
+    </li>
+  </ul>
+</div>
+
+<h3>Verification Checklist for Phase 5</h3>
+<div class="card">
+  <ul>
+    <li> Single .exe runs on clean Windows install (no Python)</li>
+    <li> Startup time < 3 seconds</li>
+    <li> RAM < 200MB idle</li>
+    <li> No console window in release mode</li>
+    <li> Mic unavailable → text-only mode with notification</li>
+    <li> All APIs down → user-friendly message, no traceback</li>
+    <li> Wake word activates correctly (if enabled)</li>
+    <li> VAD stops recording naturally after speech ends</li>
+    <li> Interruption works (speak while AI talks → it stops and listens)</li>
+    <li> Config UI saves and loads settings correctly</li>
+    <li> Logs written to <code>~/.nexu/logs/</code></li>
+    <li> Auto-start with Windows works</li>
+    <li> All extra tools (clipboard, screenshot, PDF) work</li>
+  </ul>
+</div>
+
+<hr style="border:none;border-top:1px solid #21262d;margin:40px 0">
+
+<h2>How It All Connects</h2>
+<div class="code">
+<span class="dim">Input</span>          <span class="dim">→ Processing</span>     <span class="dim">→ Action</span>             <span class="dim">→ Response</span><br>
+<span class="g">F4 (voice)</span>  ───→ <span class="hl">STT</span> ───→ <span class="hl">AI Brain</span> ───→ <span class="o">Tool Executor</span> ───→ <span class="g">TTS</span><br>
+<span class="g">F3 (text)</span>   ───→ <span class="hl">AI Brain</span> ───→ <span class="o">Tool Executor</span> ───→ <span class="g">Overlay text</span><br>
+<span class="g">CLI</span>         ───→ <span class="hl">AI Brain</span> ───→ <span class="o">Tool Executor</span> ───→ <span class="g">Terminal</span><br>
+                    ↕                              ↕<br>
+              <span class="hl">Memory (SQLite)</span>            <span class="hl">Browser/WhatsApp (Playwright)</span>
+</div>
+
+<div class="footer">
+Nexu — Python, edge-tts, Groq/Gemini/OpenRouter, SQLite, Playwright
+</div>
+
+</div>
+</body>
+</html>

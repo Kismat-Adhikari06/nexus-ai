@@ -32,6 +32,12 @@ def _fuzzy_find(path: str) -> str:
     expanded = os.path.expanduser(path.replace("\\", "/"))
     if os.path.exists(expanded):
         return expanded
+
+    for parent in [Config.DESKTOP_DIR, Config.DOCUMENTS_DIR, Config.HOME_DIR]:
+        candidate = os.path.join(parent, expanded)
+        if os.path.exists(candidate):
+            return candidate
+
     parts = expanded.split("/")
     for i in range(len(parts), 0, -1):
         prefix = "/".join(parts[:i])

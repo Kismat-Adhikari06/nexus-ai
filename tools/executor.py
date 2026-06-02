@@ -14,7 +14,8 @@ REGISTRY = {
     "run_command": (system.run_command, "Run a shell command (ipconfig, dir, etc. — NOT for launching apps)", {"command": "command to execute"}),
     "open_file": (files.open_file, "Open a file with its default app", {"path": "file path"}),
     "open_in_vscode": (files.open_in_vscode, "Open a file or folder in VS Code", {"path": "path to file or folder"}),
-    "search_files": (files.search_files, "Search for files by name", {"query": "filename to search", "location": "directory to search (optional)"}),
+    "search_files": (files.search_files, "Search for files by name in a specific folder (default: Desktop)", {"query": "filename to search", "location": "directory to search (optional, default: Desktop)"}),
+    "find_file": (files.find_file, "Search for a file across Desktop, Documents, and Home — use when you don't know where the file is", {"filename": "exact filename or part of it to search for"}),
     "get_file_info": (files.get_file_info, "Get file size and info", {"path": "file path"}),
     "list_directory": (files.list_directory, "List contents of a directory (defaults to desktop if no path given)", {"path": "directory path (optional)"}),
     "open_url": (browser.open_url, "Open a URL in the default browser", {"url": "URL to open"}),
@@ -73,6 +74,12 @@ def build_tool_prompt() -> str:
     lines.append("LAUNCHING WHATSAPP (just opening the browser tab, not interacting):")
     lines.append("  If user ONLY says 'open whatsapp' or 'launch whatsapp' with NO request to read/send,")
     lines.append("  use launch_app with name='whatsapp'. Do NOT use send_whatsapp.")
+    lines.append("FILE SEARCH GUIDANCE:")
+    lines.append("  - If the user asks 'find X' or 'where is X', first try 'find_file' (searches Desktop/Documents/Home).")
+    lines.append("  - If 'find_file' fails, use 'list_directory' to look inside a specific folder the user mentioned.")
+    lines.append("  - Use 'search_files' with a 'location' parameter to narrow the search to a specific folder.")
+    lines.append("  - 'search_files' without location only searches the Desktop (fast).")
+    lines.append("  - Do NOT say 'I can't find it' immediately — try multiple search approaches first.")
     lines.append("Example for battery:")
     lines.append("  Your battery is at 80%.")
     lines.append("  ---TOOL---")

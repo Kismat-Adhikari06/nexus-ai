@@ -73,11 +73,24 @@ def open_in_vscode(path: str) -> str:
         return f"Failed: {e}"
 
 
+_SEARCH_SKIP_DIRS = {
+    "appdata", "node_modules", ".git", "__pycache__", "cache",
+    "temp", "tmp", ".npm", ".yarn", ".cache", "winrt",
+}
+
+
 def search_files(query: str, location: str | None = None) -> str:
+    import time
     try:
-        root = os.path.expanduser(location) if location else Config.HOME_DIR
+        root = os.path.expanduser(location) if location else Config.DESKTOP_DIR
+        if not os.path.isdir(root):
+            root = Config.DESKTOP_DIR
         matches = []
-        for dirpath, _, filenames in os.walk(root):
+        start = time.time()
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d.lower() not in _SEARCH_SKIP_DIRS]
+            if time.time() - start > 15:
+                break
             if len(matches) >= 10:
                 break
             for f in filenames:
@@ -87,9 +100,22 @@ def search_files(query: str, location: str | None = None) -> str:
                         break
         if matches:
             return "Found:\n" + "\n".join(matches)
-        return "No files found"
+        return f"No files found matching '{query}' in {root}"
     except Exception as e:
         return f"Search failed: {e}"
+
+
+def find_file(filename: str) -> str:
+    searches = [Config.DESKTOP_DIR, Config.DOCUMENTS_DIR, Config.HOME_DIR]
+    seen = set()
+    for root in searches:
+        if not os.path.isdir(root) or root in seen:
+            continue
+        seen.add(root)
+        result = search_files(filename, root)
+        if result.startswith("Found"):
+            return result
+    return f"Could not find '{filename}' anywhere on your system"
 
 
 def get_file_info(path: str) -> str:

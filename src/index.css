@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  --color-nexu-bg: #0f0f13;
+  --color-nexu-surface: #1a1a23;
+  --color-nexu-surface-2: #24243a;
+  --color-nexu-border: #2a2a3e;
+  --color-nexu-primary: #7c3aed;
+  --color-nexu-primary-hover: #8b5cf6;
+  --color-nexu-primary-dim: rgba(124, 58, 237, 0.15);
+  --color-nexu-text: #e4e4ee;
+  --color-nexu-text-dim: #8b8b9e;
+  --color-nexu-text-muted: #5c5c72;
+  --color-nexu-accent-green: #22c55e;
+  --color-nexu-accent-yellow: #eab308;
+  --color-nexu-accent-red: #ef4444;
+  --color-nexu-accent-blue: #3b82f6;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--color-nexu-bg);
+  color: var(--color-nexu-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-nexu-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-nexu-text-muted);
+}
+
+/* Voice recording animation */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.15); opacity: 0.2; }
+  100% { transform: scale(1); opacity: 0.6; }
+}
+
+.recording-pulse {
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}
+
+/* Thinking dots animation */
+@keyframes think-dot {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.think-dot:nth-child(1) { animation: think-dot 1.4s ease-in-out infinite; }
+.think-dot:nth-child(2) { animation: think-dot 1.4s ease-in-out 0.2s infinite; }
+.think-dot:nth-child(3) { animation: think-dot 1.4s ease-in-out 0.4s infinite; }

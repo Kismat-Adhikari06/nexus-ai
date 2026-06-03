@@ -19,36 +19,46 @@ set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
 if not exist "%NEXU_DIR%" mkdir "%NEXU_DIR%"
 
-REM Find Nexu.exe
+REM Find Nexu (exe or dev script)
 set "EXE_PATH=%~dp0dist\Nexu.exe"
-if not exist "%EXE_PATH%" (
-    echo [ERROR] dist\Nexu.exe not found.
-    echo   Run build.bat first to create the executable.
-    pause
-    exit /b 1
+if exist "%EXE_PATH%" (
+    set "TARGET=%EXE_PATH%"
+    set "ARGUMENTS="
+) else (
+    echo [INFO] No dist\Nexu.exe found — using dev script instead.
+    set "TARGET=python"
+    set "ARGUMENTS=%~dp0main.py --install"
 )
 
-REM Copy to .nexu folder
-echo [1/3] Copying Nexu to %NEXU_DIR%...
-copy /Y "%EXE_PATH%" "%NEXU_DIR%\Nexu.exe"
+REM Install auto-start
+echo [1/3] Installing auto-start...
+if not "%ARGUMENTS%"=="" (
+    %TARGET% %ARGUMENTS%
+) else (
+    copy /Y "%EXE_PATH%" "%NEXU_DIR%\Nexu.exe"
+    set "TARGET=%NEXU_DIR%\Nexu.exe"
+    set "ARGUMENTS="
+)
 
 REM Create desktop shortcut
 echo [2/3] Creating desktop shortcut...
 set "DESKTOP=%USERPROFILE%\Desktop"
 if exist "%DESKTOP%" (
-    set "SHORTCUT_PATH=%DESKTOP%\Nexu.lnk"
-    powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%SHORTCUT_PATH%'); $SC.TargetPath = '%NEXU_DIR%\Nexu.exe'; $SC.WorkingDirectory = '%NEXU_DIR%'; $SC.Description = 'Nexu AI Desktop Assistant'; $SC.Save()"
+    powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%DESKTOP%\Nexu.lnk'); $SC.TargetPath = '%TARGET%'; $SC.Arguments = '%ARGUMENTS%'; $SC.WorkingDirectory = '%NEXU_DIR%'; $SC.Description = 'Nexu AI Desktop Assistant'; $SC.Save()"
     echo   Shortcut created on Desktop
 ) else (
     echo   [WARNING] Could not create desktop shortcut
 )
 
-REM Add to startup
+REM Also add to startup
 echo [3/3] Adding to Windows startup...
 if exist "%STARTUP_DIR%" (
-    set "STARTUP_SHORTCUT=%STARTUP_DIR%\Nexu.lnk"
-    powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_SHORTCUT%'); $SC.TargetPath = '%NEXU_DIR%\Nexu.exe'; $SC.WorkingDirectory = '%NEXU_DIR%'; $SC.Description = 'Nexu AI Desktop Assistant'; $SC.Save()"
-    echo   Added to startup
+    if not "%ARGUMENTS%"=="" (
+        %TARGET% %ARGUMENTS%
+    ) else (
+        powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_DIR%\Nexu.lnk'); $SC.TargetPath = '%TARGET%'; $SC.WorkingDirectory = '%NEXU_DIR%'; $SC.Description = 'Nexu AI Desktop Assistant'; $SC.Save()"
+        echo   Added to startup
+    )
 ) else (
     echo   [WARNING] Could not add to startup
 )

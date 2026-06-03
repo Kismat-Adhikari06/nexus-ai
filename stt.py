@@ -13,6 +13,7 @@ log = get_logger("stt")
 
 _stop_flag = threading.Event()
 _audio_save_dir = os.path.join(str(os.path.expanduser("~")), ".nexu", "debug_audio")
+_whisper_model = None
 
 
 def stop_recording():
@@ -57,21 +58,16 @@ def record_audio() -> str | None:
         for i in range(max_chunks):
             if _stop_flag.is_set():
                 break
-
             data = stream.read(Config.MIC_CHUNK, exception_on_overflow=False)
             frames.append(data)
-
             amplitude = max(abs(int.from_bytes(data[i:i+2], "little", signed=True))
                             for i in range(0, len(data), 2))
-
             if amplitude < 100:
                 silent_chunks += 1
             else:
                 silent_chunks = 0
-
             if silent_chunks >= silence_threshold and len(frames) > 30:
                 break
-
             if i % 3 == 0:
                 log.debug("Mic level: %s", _level_bar(amplitude))
     except Exception as e:
@@ -96,7 +92,6 @@ def record_audio() -> str | None:
         wf.writeframes(b"".join(frames))
 
     _save_debug_audio(tmp_path, frames)
-
     return tmp_path
 
 
@@ -117,7 +112,36 @@ def _save_debug_audio(original_path: str, frames: list[bytes]):
         log.warning("Failed to save debug audio: %s", e)
 
 
-def transcribe(audio_path: str) -> str:
+def preload_model():
+    global _whisper_model
+    try:
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel(
+            Config.WHISPER_MODEL_SIZE,
+            device=Config.WHISPER_DEVICE,
+            compute_type=Config.WHISPER_COMPUTE_TYPE,
+        )
+        log.info("Local whisper model loaded (%s, %s, %s)",
+                 Config.WHISPER_MODEL_SIZE, Config.WHISPER_DEVICE, Config.WHISPER_COMPUTE_TYPE)
+    except Exception as e:
+        log.warning("Failed to load local whisper model: %s — will use Groq API", e)
+
+
+def _transcribe_local(audio_path: str) -> tuple[str | None, float]:
+    if _whisper_model is None:
+        return None, 0.0
+    try:
+        segments, info = _whisper_model.transcribe(audio_path, beam_size=1)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        avg_prob = info.average_log_prob if hasattr(info, 'average_log_prob') else -10
+        confidence = 2 ** avg_prob if avg_prob > -10 else 0
+        return text, confidence
+    except Exception as e:
+        log.warning("Local transcription failed: %s", e)
+        return None, 0.0
+
+
+def _transcribe_groq(audio_path: str) -> str | None:
     last_err = None
     for key in Config.GROQ_KEYS:
         try:
@@ -128,25 +152,40 @@ def transcribe(audio_path: str) -> str:
                     model="whisper-large-v3-turbo",
                     response_format="text",
                 )
-            os.unlink(audio_path)
             return text.strip()
         except Exception as e:
             last_err = e
-            log.warning("Transcription failed with key %s: %s", key[:8], e)
+            log.warning("Groq transcription failed with key %s: %s", key[:8], e)
             continue
-    try:
-        os.unlink(audio_path)
-    except OSError:
-        pass
     raise last_err
+
+
+def transcribe(audio_path: str) -> str:
+    text, confidence = _transcribe_local(audio_path)
+
+    if text and confidence > 0.3:
+        log.info("Local STT (conf=%.2f): %s", confidence, text)
+        os.unlink(audio_path)
+        return text
+
+    log.info("Local STT confidence low (%.2f), falling back to Groq API", confidence)
+    try:
+        text = _transcribe_groq(audio_path)
+        os.unlink(audio_path)
+        return text
+    except Exception as e:
+        try:
+            os.unlink(audio_path)
+        except OSError:
+            pass
+        if text:
+            log.warning("Groq failed, using low-confidence local result: %s", e)
+            return text
+        raise
 
 
 def reset_stop():
     _stop_flag.clear()
-
-
-def preload_model():
-    log.info("STT preload complete (using Groq API)")
 
 
 def speech_to_text() -> str | None:

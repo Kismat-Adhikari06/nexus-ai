@@ -15,6 +15,13 @@ from stt import preload_model, reset_stop, speech_to_text, stop_recording
 from tools.executor import execute
 from tts import speak, speak_sentence, speaking, stop_speaking, VOICE
 
+try:
+    from wake_word import WakeWordDetector
+    _WAKE_AVAILABLE = True
+except ImportError:
+    _WAKE_AVAILABLE = False
+    log.warning("wake_word not available")
+
 log = get_logger("main")
 
 VK_F4 = 0x73
@@ -111,9 +118,17 @@ class NexuOverlay:
 
         threading.Thread(target=self._preload, daemon=True).start()
         self._start_keyboard_listener()
+        self._start_wake_word()
 
     def _preload(self):
         preload_model()
+
+    def _start_wake_word(self):
+        if not _WAKE_AVAILABLE:
+            return
+        kw = Config.HOTKEY if Config.HOTKEY in ("hey_jarvis", "alexa", "computer") else "hey_jarvis"
+        self.wake = WakeWordDetector(callback=self._start_listen, keyword=kw)
+        self.wake.start()
 
     def _start_keyboard_listener(self):
         listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
@@ -374,13 +389,51 @@ def _notify_error(title: str, message: str):
         log.warning("Could not show notification: %s — %s", title, message)
 
 
+def _install_startup():
+    import subprocess, sys
+    startup_dir = os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+    exe_path = sys.executable
+    script_path = os.path.abspath(__file__)
+    shortcut_path = os.path.join(startup_dir, "Nexu.lnk")
+    ps = (
+        f'$WS = New-Object -ComObject WScript.Shell; '
+        f'$SC = $WS.CreateShortcut("{shortcut_path}"); '
+        f'$SC.TargetPath = "{exe_path}"; '
+        f'$SC.Arguments = "\'{script_path}\'"; '
+        f'$SC.WorkingDirectory = "{os.path.dirname(script_path)}"; '
+        f'$SC.Description = "Nexu AI Desktop Assistant"; '
+        f'$SC.Save()'
+    )
+    subprocess.run(["powershell", "-Command", ps], check=True)
+    print(f"[nexu] Auto-start installed — {shortcut_path}")
+
+
+def _uninstall_startup():
+    import os
+    startup_dir = os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+    shortcut_path = os.path.join(startup_dir, "Nexu.lnk")
+    if os.path.exists(shortcut_path):
+        os.remove(shortcut_path)
+        print("[nexu] Auto-start removed")
+    else:
+        print("[nexu] No auto-start found")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Nexu — AI Desktop Assistant")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument("--install", action="store_true", help="Install auto-start with Windows")
+    parser.add_argument("--uninstall", action="store_true", help="Remove auto-start")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.install:
+        _install_startup()
+        sys.exit(0)
+    if args.uninstall:
+        _uninstall_startup()
+        sys.exit(0)
     setup_logging(debug=args.debug)
     NexuOverlay().run()

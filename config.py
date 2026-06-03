@@ -44,7 +44,7 @@ class Config:
     MIC_CHUNK = _get("mic_chunk", 1024)
     SILENCE_SECONDS = _get("silence_seconds", 2.0)
     MAX_RECORD_SECONDS = _get("max_record_seconds", 10)
-    WHISPER_MODEL_SIZE = _get("whisper_model_size", "base")
+    WHISPER_MODEL_SIZE = _get("whisper_model_size", "tiny")
     WHISPER_DEVICE = _get("whisper_device", "cpu")
     WHISPER_COMPUTE_TYPE = _get("whisper_compute_type", "int8")
 

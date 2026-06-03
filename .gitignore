@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Vite cache
+.vite/
+
+# WhatsApp Baileys sessions
+server/sessions/

@@ -67,35 +67,21 @@ REGISTRY = {
 
 def build_tool_prompt() -> str:
     lines = [
-        "TOOLS (only use when the user asks for a file/system/browser action):",
+        "Available tools (only use for file/system/browser/action requests — NEVER for chit-chat):",
     ]
     for name, (_, desc, params) in REGISTRY.items():
         if params:
             keys = ", ".join(f'"{k}": ...' for k in params)
             lines.append(f"  {name} — {desc}")
-            lines.append(f'    JSON: {{"action": "{name}", {keys}}}')
+            lines.append(f'    {{"action": "{name}", {keys}}}')
         else:
             lines.append(f"  {name} — {desc}")
-            lines.append(f'    JSON: {{"action": "{name}"}}')
+            lines.append(f'    {{"action": "{name}"}}')
     lines.append("")
-    lines.append("Format: respond naturally, then on a new line add ---TOOL--- then the JSON.")
-    lines.append("Use forward slashes for paths, e.g. C:/Users/name/Desktop.")
-    lines.append("CRITICAL — NEVER use any tool for casual conversation, greetings, or small talk.")
-    lines.append("  Just reply naturally. Tools are only for file/system/browser/action requests.")
-    lines.append("MEMORY: Use 'remember' when the user says 'remember this'. Use 'recall' when")
-    lines.append("  they ask 'what is...' about a fact you DON'T already know. Use 'search_memory' for past conversations.")
-    lines.append("BROWSER AUTOMATION: Use 'browser_act' when the user wants to CHECK, FIND, or")
-    lines.append("  EXTRACT something from a website. The goal should be a short description.")
-    lines.append("WHATSAPP TOOLS: 'send_whatsapp', 'read_whatsapp', 'list_whatsapp_contacts'")
-    lines.append("CLIPBOARD: 'clipboard_read' to see clipboard, 'clipboard_copy' to copy text")
-    lines.append("SCREENSHOT: 'screenshot' to capture screen")
-    lines.append("PDF: 'read_pdf' to extract text from a PDF file")
-    lines.append("YOUTUBE: 'play_youtube' to search and play a song/video. Use it for ANY music request:")
-    lines.append('  "play X by Y" → play_youtube(query="X by Y")')
-    lines.append('  "play X" (if X is a song name) → play_youtube(query="X")')
-    lines.append("  If the result says 'opened search results' then tell the user you couldn't find it.")
-    lines.append("FILE SEARCH: If the user asks 'find X', first try 'find_file'. If that fails,")
-    lines.append("  use 'list_directory' to look inside folders. Do NOT give up immediately.")
+    lines.append("Respond naturally, then add ---TOOL--- followed by the JSON on a new line.")
+    lines.append("Use forward slashes for paths (C:/Users/...).")
+    lines.append("For greetings just reply naturally — no tools.")
+    lines.append('"play X by Y" = play_youtube(query="X by Y") — do this for any music request.')
     return "\n".join(lines)
 
 

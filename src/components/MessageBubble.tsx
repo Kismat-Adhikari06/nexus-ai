@@ -22,8 +22,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       {/* Bubble */}
       <div className={`max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
         {isTool && message.toolName && (
-          <p className="text-xs text-nexu-text-muted mb-1 ml-1 font-medium">
-            🔧 {message.toolName}
+          <p className="text-xs text-nexu-text-muted mb-1 ml-1 font-medium flex items-center gap-1">
+            <Wrench size={12} /> {message.toolName}
           </p>
         )}
         <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${

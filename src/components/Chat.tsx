@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { Bot } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import type { AppStatus, Message } from '../types';
 
@@ -36,7 +37,7 @@ export default function Chat({ messages, status }: ChatProps) {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="text-center max-w-md">
           <div className="w-16 h-16 rounded-2xl bg-nexu-primary-dim flex items-center justify-center mx-auto mb-6">
-            <span className="text-3xl">🤖</span>
+            <Bot size={32} className="text-nexu-primary-hover" />
           </div>
           <h2 className="text-xl font-semibold text-nexu-text mb-2">How can I help you?</h2>
           <p className="text-sm text-nexu-text-dim leading-relaxed">

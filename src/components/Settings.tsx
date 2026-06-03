@@ -1,23 +1,29 @@
-import { useState } from 'react';
 import { Save, Key, Mic, Volume2, Keyboard } from 'lucide-react';
 
 const HOTKEY_OPTIONS = ['Caps Lock', 'F4', 'F3', 'M', 'Space'];
-const PROVIDER_OPTIONS = ['groq', 'gemini', 'openrouter'] as const;
+const PROVIDER_OPTIONS = ['auto', 'groq', 'gemini'] as const;
 
-export default function Settings() {
-  const [saved, setSaved] = useState(false);
-  const [provider, setProvider] = useState<string>('groq');
-  const [hotkey, setHotkey] = useState('F4');
-  const [voiceInput, setVoiceInput] = useState(true);
-  const [voiceOutput, setVoiceOutput] = useState(true);
-  const [groqKey, setGroqKey] = useState('');
-  const [geminiKey, setGeminiKey] = useState('');
+interface SettingsProps {
+  groqApiKey: string;
+  geminiApiKey: string;
+  provider: string;
+  hotkey: string;
+  voiceInput: boolean;
+  voiceOutput: boolean;
+  onGroqKeyChange: (key: string) => void;
+  onGeminiKeyChange: (key: string) => void;
+  onProviderChange: (provider: string) => void;
+  onHotkeyChange: (hotkey: string) => void;
+  onVoiceInputChange: (enabled: boolean) => void;
+  onVoiceOutputChange: (enabled: boolean) => void;
+}
 
-  const handleSave = () => {
-    console.log('Saving settings:', { provider, hotkey, voiceInput, voiceOutput, groqKey, geminiKey });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+export default function Settings({
+  groqApiKey, geminiApiKey, provider, hotkey,
+  voiceInput, voiceOutput,
+  onGroqKeyChange, onGeminiKeyChange, onProviderChange, onHotkeyChange,
+  onVoiceInputChange, onVoiceOutputChange,
+}: SettingsProps) {
 
   const Toggle = ({ enabled, onChange }: { enabled: boolean; onChange: () => void }) => (
     <button
@@ -57,8 +63,8 @@ export default function Settings() {
               <input
                 type="password"
                 placeholder="gsk_..."
-                value={groqKey}
-                onChange={(e) => setGroqKey(e.target.value)}
+                value={groqApiKey}
+                onChange={(e) => onGroqKeyChange(e.target.value)}
                 className="w-full bg-nexu-bg border border-nexu-border rounded-lg px-3 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
               />
             </div>
@@ -67,8 +73,8 @@ export default function Settings() {
               <input
                 type="password"
                 placeholder="AIza..."
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
+                value={geminiApiKey}
+                onChange={(e) => onGeminiKeyChange(e.target.value)}
                 className="w-full bg-nexu-bg border border-nexu-border rounded-lg px-3 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
               />
             </div>
@@ -85,14 +91,14 @@ export default function Settings() {
             {PROVIDER_OPTIONS.map((p) => (
               <button
                 key={p}
-                onClick={() => setProvider(p)}
+                onClick={() => onProviderChange(p)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium capitalize border transition-colors cursor-pointer ${
                   provider === p
                     ? 'bg-nexu-primary-dim border-nexu-primary/30 text-nexu-primary-hover'
                     : 'bg-nexu-surface-2 border-nexu-border text-nexu-text-dim hover:border-nexu-border/50'
                 }`}
               >
-                {p}
+                {p === 'auto' ? 'Auto (Groq→Gemini)' : p}
               </button>
             ))}
           </div>
@@ -108,7 +114,7 @@ export default function Settings() {
             {HOTKEY_OPTIONS.map((key) => (
               <button
                 key={key}
-                onClick={() => setHotkey(key)}
+                onClick={() => onHotkeyChange(key)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors cursor-pointer ${
                   hotkey === key
                     ? 'bg-nexu-primary-dim border-nexu-primary/30 text-nexu-primary-hover'
@@ -136,7 +142,7 @@ export default function Settings() {
                   <p className="text-xs text-nexu-text-muted">Enable microphone for speech-to-text</p>
                 </div>
               </div>
-              <Toggle enabled={voiceInput} onChange={() => setVoiceInput(!voiceInput)} />
+              <Toggle enabled={voiceInput} onChange={() => onVoiceInputChange(!voiceInput)} />
             </label>
             <label className="flex items-center justify-between p-3 rounded-lg bg-nexu-surface-2 border border-nexu-border cursor-pointer">
               <div className="flex items-center gap-3">
@@ -146,19 +152,15 @@ export default function Settings() {
                   <p className="text-xs text-nexu-text-muted">Enable text-to-speech for AI responses</p>
                 </div>
               </div>
-              <Toggle enabled={voiceOutput} onChange={() => setVoiceOutput(!voiceOutput)} />
+              <Toggle enabled={voiceOutput} onChange={() => onVoiceOutputChange(!voiceOutput)} />
             </label>
           </div>
         </section>
 
         {/* Save Button */}
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-nexu-primary hover:bg-nexu-primary-hover text-white font-medium text-sm transition-colors cursor-pointer"
-        >
-          <Save size={16} />
-          {saved ? 'Saved!' : 'Save Settings'}
-        </button>
+        <p className="text-xs text-nexu-text-muted">
+          API keys are stored in your browser's localStorage and sent directly to the AI provider.
+        </p>
       </div>
     </div>
   );

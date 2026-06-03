@@ -3,6 +3,9 @@ import subprocess
 from difflib import SequenceMatcher
 
 from config import Config
+from nexu_log import get_logger
+
+log = get_logger("files")
 
 _ACCENT_MAP = str.maketrans({
     "b": "v", "v": "b",
@@ -61,10 +64,13 @@ def open_file(path: str) -> str:
     try:
         full = _fuzzy_find(path)
         if not os.path.exists(full):
+            log.warning("File not found: %s", path)
             return f"Could not find: {path}"
         os.startfile(full)
+        log.info("Opened file: %s", full)
         return f"Opened {os.path.basename(full)}"
     except Exception as e:
+        log.error("Failed to open %s: %s", path, e)
         return f"Failed to open {path}: {e}"
 
 
@@ -76,6 +82,7 @@ def open_in_vscode(path: str) -> str:
         subprocess.Popen(["code", full], shell=True)
         return f"Opened {os.path.basename(full)} in VS Code"
     except Exception as e:
+        log.error("Failed to open in VS Code: %s", e)
         return f"Failed: {e}"
 
 
@@ -108,6 +115,7 @@ def search_files(query: str, location: str | None = None) -> str:
             return "Found:\n" + "\n".join(matches)
         return f"No files found matching '{query}' in {root}"
     except Exception as e:
+        log.error("Search failed: %s", e)
         return f"Search failed: {e}"
 
 
@@ -152,14 +160,10 @@ def list_directory(path: str | None = None) -> str:
         if not os.path.isdir(full):
             return f"Could not find directory: {path}"
         items = os.listdir(full)
-        dirs = []
-        files = []
-        for item in items:
-            if os.path.isdir(os.path.join(full, item)):
-                dirs.append(f"📁 {item}")
-            else:
-                files.append(f"📄 {item}")
+        dirs = [f"📁 {i}" for i in items if os.path.isdir(os.path.join(full, i))]
+        files = [f"📄 {i}" for i in items if not os.path.isdir(os.path.join(full, i))]
         result = dirs[:10] + files[:10]
         return "\n".join(result) if result else "Empty directory"
     except Exception as e:
+        log.error("list_directory error: %s", e)
         return f"Error: {e}"

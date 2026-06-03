@@ -8,14 +8,20 @@ import threading
 import edge_tts
 import pygame
 
+from config import Config
+from nexu_log import get_logger
+
+log = get_logger("tts")
+
 try:
     pygame.mixer.init()
     _audio_available = True
 except pygame.error as e:
-    print(f"[tts] Audio unavailable — running in text-only mode ({e})")
+    log.warning("Audio unavailable — running in text-only mode (%s)", e)
     _audio_available = False
 
-VOICE = "en-US-AriaNeural"
+VOICE = Config.TTS_VOICE
+_TTS_SPEED = Config.TTS_SPEED
 _tts_queue = queue.Queue()
 _stop_requested = threading.Event()
 _playing = False
@@ -41,6 +47,8 @@ def _speak_single(text: str):
         tmp_path = tmp.name
         tmp.close()
         communicate = edge_tts.Communicate(text, VOICE)
+        if _TTS_SPEED:
+            communicate.pitch = _TTS_SPEED
         await communicate.save(tmp_path)
 
         pygame.mixer.music.load(tmp_path)
@@ -61,7 +69,7 @@ def _speak_single(text: str):
     try:
         future.result()
     except Exception as e:
-        print(f"[tts] Error: {e}")
+        log.error("TTS playback error: %s", e)
 
 
 def _tts_worker():

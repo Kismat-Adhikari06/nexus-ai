@@ -1,12 +1,43 @@
 import json
 import time
 import urllib.request
+import urllib.error
+import warnings
 
-import google.generativeai as genai
 from groq import Groq
 
 from config import Config
+from nexu_log import get_logger
 from tools.executor import build_tool_prompt, parse_tool_calls
+
+log = get_logger("ai")
+
+_GEMINI_AVAILABLE = False
+_GENAI_CLIENT = None
+_GENAI_OLD = None
+try:
+    import google.genai as genai_new
+    if Config.GEMINI_API_KEY:
+        _GENAI_CLIENT = genai_new.Client(api_key=Config.GEMINI_API_KEY)
+        _GEMINI_AVAILABLE = True
+        log.info("Using google.genai for Gemini")
+    del genai_new
+except ImportError:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        try:
+            import google.generativeai as genai_old
+            _GENAI_OLD = genai_old
+            if Config.GEMINI_API_KEY:
+                genai_old.configure(api_key=Config.GEMINI_API_KEY)
+                _GEMINI_AVAILABLE = True
+                log.info("Using google.generativeai for Gemini")
+        except ImportError:
+            log.warning("google.genai nor google.generativeai installed — Gemini unavailable")
+        except Exception as e:
+            log.warning("Gemini init failed: %s", e)
+except Exception as e:
+    log.warning("Gemini init failed: %s", e)
 
 
 class Conversation:
@@ -51,7 +82,7 @@ class Conversation:
                 )
         except Exception as e:
             prompt = prompt.replace("{MEMORY_PROMPT}", "")
-            print(f"[memory] Error loading context: {e}")
+            log.warning("Error loading memory context: %s", e)
 
         messages = [{"role": "system", "content": prompt}]
         for user_msg, assistant_msg in self.history:
@@ -61,34 +92,44 @@ class Conversation:
         return messages
 
 
-def _call_groq(messages: list) -> str:
+def _call_groq(messages: list, stream: bool = False):
     last_err = None
     for key in Config.GROQ_KEYS:
         try:
             client = Groq(api_key=key)
-            completion = client.chat.completions.create(
-                model=Config.GROQ_MODEL,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1024,
-                timeout=Config.AI_TIMEOUT,
-            )
+            kwargs = {
+                "model": Config.GROQ_MODEL,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1024,
+                "timeout": Config.AI_TIMEOUT,
+            }
+            if stream:
+                kwargs["stream"] = True
+                return client.chat.completions.create(**kwargs)
+            completion = client.chat.completions.create(**kwargs)
             return completion.choices[0].message.content
         except Exception as e:
             last_err = e
-            print(f"[groq] Key failed, trying next: {e}")
+            log.warning("Groq key %s failed: %s", key[:8], e)
             continue
     raise last_err
 
 
 def _call_gemini(messages: list) -> str:
-    genai.configure(api_key=Config.GEMINI_API_KEY)
-    model = genai.GenerativeModel(Config.GEMINI_MODEL)
-    prompt = "\n".join(
-        f"{m['role']}: {m['content']}" for m in messages
-    )
-    response = model.generate_content(prompt)
-    return response.text
+    if not _GEMINI_AVAILABLE:
+        raise RuntimeError("Gemini not available")
+    prompt = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+    if _GENAI_CLIENT is not None:
+        response = _GENAI_CLIENT.models.generate_content(
+            model=Config.GEMINI_MODEL, contents=prompt,
+        )
+        return response.text
+    if _GENAI_OLD is not None:
+        model = _GENAI_OLD.GenerativeModel(Config.GEMINI_MODEL)
+        response = model.generate_content(prompt)
+        return response.text
+    raise RuntimeError("No Gemini library available")
 
 
 def _call_lm_studio(messages: list) -> str:
@@ -138,22 +179,6 @@ providers = {
 }
 
 
-def ask(user_text: str, conversation: Conversation | None = None) -> tuple[str, list]:
-    if conversation is None:
-        conversation = Conversation()
-    messages = conversation.build_messages(user_text)
-    try:
-        raw = _call_with_fallback(messages)
-    except Exception as e:
-        print(f"[ai] All AI providers failed: {e}")
-        return "Sorry, I couldn't reach any AI provider right now.", []
-    parts = raw.split("---TOOL---")
-    text = parts[0].strip()
-    tool_calls = parse_tool_calls(raw)
-    conversation.add(user_text, text)
-    return text, tool_calls
-
-
 def _call_with_fallback(messages: list, provider_name: str | None = None) -> str:
     if provider_name is None:
         provider_name = Config.AI_PROVIDER
@@ -168,35 +193,51 @@ def _call_with_fallback(messages: list, provider_name: str | None = None) -> str
         fn = providers.get(name)
         if fn is None:
             continue
+        if name == "gemini" and not _GEMINI_AVAILABLE:
+            log.debug("Skipping Gemini — not available")
+            continue
+        if name == "groq" and not Config.GROQ_KEYS:
+            log.debug("Skipping Groq — no API keys")
+            continue
+        if name == "openrouter" and not Config.OPENROUTER_API_KEY:
+            log.debug("Skipping OpenRouter — no API key")
+            continue
         for attempt in range(2):
             try:
+                log.info("Calling AI provider: %s (attempt %d)", name, attempt + 1)
                 return fn(messages)
             except urllib.error.HTTPError as e:
                 if e.code == 429 and attempt == 0:
-                    print(f"[ai] {name} rate limited, waiting 5s and retrying...")
+                    log.warning("%s rate limited, waiting 5s...", name)
                     time.sleep(5)
                     continue
                 last_err = e
-                print(f"[ai] {name} failed: {e}")
+                log.warning("%s HTTP error: %s", name, e)
                 break
             except Exception as e:
                 last_err = e
-                print(f"[ai] {name} failed: {e}")
+                log.warning("%s failed: %s", name, e)
                 break
     raise last_err
 
 
-def ask_stream(user_text: str, conversation: Conversation | None = None):
-    """Generator that yields ('token', str) for each token, then ('done', text, tool_calls).
+def ask(user_text: str, conversation: Conversation | None = None) -> tuple[str, list]:
+    if conversation is None:
+        conversation = Conversation()
+    messages = conversation.build_messages(user_text)
+    try:
+        raw = _call_with_fallback(messages)
+    except Exception as e:
+        log.error("All AI providers failed: %s", e)
+        return "Sorry, I couldn't reach any AI provider right now.", []
+    parts = raw.split("---TOOL---")
+    text = parts[0].strip()
+    tool_calls = parse_tool_calls(raw)
+    conversation.add(user_text, text)
+    return text, tool_calls
 
-    Use like:
-        for msg in ask_stream(user_text, conv):
-            if msg[0] == 'token':
-                token = msg[1]
-                ...
-            elif msg[0] == 'done':
-                _, text, tool_calls = msg
-    """
+
+def ask_stream(user_text: str, conversation: Conversation | None = None):
     if conversation is None:
         conversation = Conversation()
     messages = conversation.build_messages(user_text)
@@ -204,7 +245,6 @@ def ask_stream(user_text: str, conversation: Conversation | None = None):
     full_text = ""
     streamed = False
 
-    # Try Groq streaming first
     if Config.AI_PROVIDER == "groq" and Config.GROQ_KEYS:
         for key in Config.GROQ_KEYS:
             try:
@@ -222,12 +262,14 @@ def ask_stream(user_text: str, conversation: Conversation | None = None):
                     full_text += token
                     yield ("token", token)
                 streamed = True
+                log.info("Groq streaming complete")
                 break
             except Exception as e:
-                print(f"[groq] Stream failed with key {key[:8]}...: {e}")
+                log.warning("Groq stream failed with key %s: %s", key[:8], e)
                 continue
 
     if not streamed:
+        log.info("Falling back to non-streaming AI call")
         raw = _call_with_fallback(messages)
         full_text = raw
         yield ("token", raw)

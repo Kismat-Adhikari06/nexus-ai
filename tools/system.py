@@ -4,6 +4,10 @@ import subprocess
 
 import psutil
 
+from nexu_log import get_logger
+
+log = get_logger("system")
+
 
 def _launch_new_console(exe: str):
     CREATE_NEW_CONSOLE = 0x00000010
@@ -27,18 +31,20 @@ def launch_app(name: str, admin: bool = False) -> str:
     try:
         if admin:
             ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, None, 1)
+        elif exe.startswith(("http://", "https://")):
+            subprocess.Popen(["cmd", "/c", "start", exe], shell=True)
         elif name.lower() in ("cmd", "command prompt"):
             _launch_new_console("cmd")
         elif name.lower() == "terminal":
             _launch_new_console("wt")
         elif name.lower() == "calendar":
             subprocess.Popen(["explorer", "shell:AppsFolder\\microsoft.windowscommunicationsapps_8wekyb3d8bbwe!microsoft.windowslive.calendar"])
-        elif name.lower() == "whatsapp":
-            subprocess.Popen(["cmd", "/c", "start", "https://web.whatsapp.com"], shell=True)
         else:
             subprocess.Popen(exe, shell=True)
+        log.info("Launched: %s", name)
         return f"Launched {name}"
     except Exception as e:
+        log.error("Failed to launch %s: %s", name, e)
         return f"Failed to launch {name}: {e}"
 
 
@@ -74,6 +80,7 @@ def set_volume(level: int) -> str:
         volume.SetMasterVolumeLevelScalar(level / 100.0, None)
         return f"Volume set to {level}%"
     except Exception as e:
+        log.error("Failed to set volume: %s", e)
         return f"Failed to set volume: {e}"
 
 
@@ -83,6 +90,7 @@ def notify(title: str, message: str) -> str:
         notification.notify(title=title, message=message, timeout=5)
         return f"Notification sent: {title}"
     except Exception as e:
+        log.error("Failed to send notification: %s", e)
         return f"Failed to send notification: {e}"
 
 
@@ -99,4 +107,5 @@ def run_command(command: str) -> str:
     except subprocess.TimeoutExpired:
         return "Command timed out"
     except Exception as e:
+        log.error("Command failed: %s", e)
         return f"Failed: {e}"

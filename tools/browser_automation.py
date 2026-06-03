@@ -1,9 +1,38 @@
 import asyncio
 import threading
-
-import google.generativeai as genai
+import warnings
 
 from config import Config
+from nexu_log import get_logger
+
+log = get_logger("browser_auto")
+
+_GEMINI_AVAILABLE = False
+_GENAI_CLIENT = None
+_GENAI_OLD = None
+try:
+    import google.genai as genai_new
+    if Config.GEMINI_API_KEY:
+        _GENAI_CLIENT = genai_new.Client(api_key=Config.GEMINI_API_KEY)
+        _GEMINI_AVAILABLE = True
+        log.info("Browser auto: using google.genai")
+    del genai_new
+except ImportError:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        try:
+            import google.generativeai as genai_old
+            _GENAI_OLD = genai_old
+            if Config.GEMINI_API_KEY:
+                genai_old.configure(api_key=Config.GEMINI_API_KEY)
+                _GEMINI_AVAILABLE = True
+                log.info("Browser auto: using google.generativeai")
+        except ImportError:
+            log.warning("google.genai nor google.generativeai installed — browser auto unavailable")
+        except Exception as e:
+            log.warning("Gemini init failed for browser auto: %s", e)
+except Exception as e:
+    log.warning("Gemini init failed for browser auto: %s", e)
 
 MAX_STEPS = 10
 _BROWSER = None
@@ -13,11 +42,21 @@ _LOCK = threading.Lock()
 
 
 def _init_gemini():
-    genai.configure(api_key=Config.GEMINI_API_KEY)
+    if not _GEMINI_AVAILABLE:
+        raise RuntimeError("Gemini not available for browser automation")
 
 
-def _get_model():
-    return genai.GenerativeModel("gemini-2.0-flash-lite")
+def _ask_gemini_prompt(prompt: str) -> str:
+    if _GENAI_CLIENT is not None:
+        response = _GENAI_CLIENT.models.generate_content(
+            model=Config.GEMINI_MODEL, contents=prompt,
+        )
+        return response.text.strip()
+    if _GENAI_OLD is not None:
+        model = _GENAI_OLD.GenerativeModel(Config.GEMINI_MODEL)
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    return "STOP: No Gemini library available"
 
 
 _BROWSER_PROMPT = (
@@ -144,9 +183,10 @@ async def navigate(url: str) -> str:
         dom = await _extract_dom(page)
         formatted = _format_dom(dom)
         if dom["hasPassword"]:
-            return "LOGIN_DETECTED: This page has a login form. Please log in to your portal first, then try again.\n\n" + formatted
+            return "LOGIN_DETECTED: This page has a login form. Please log in first.\n\n" + formatted
         return formatted
     except Exception as e:
+        log.error("Error navigating to %s: %s", url, e)
         return f"Error navigating to {url}: {e}"
 
 
@@ -167,16 +207,18 @@ async def click(text: str) -> str:
             return "LOGIN_DETECTED: " + formatted
         return formatted
     except Exception as e:
+        log.error("Error clicking '%s': %s", text, e)
         return f"Error clicking '{text}': {e}"
 
 
 async def _ask_gemini(dom_str: str, goal: str) -> str:
-    model = _get_model()
+    if not _GEMINI_AVAILABLE:
+        return "STOP: Gemini not available"
     prompt = _BROWSER_PROMPT.format(dom=dom_str, goal=goal)
     try:
-        resp = model.generate_content(prompt)
-        return resp.text.strip()
+        return _ask_gemini_prompt(prompt)
     except Exception as e:
+        log.error("Gemini request failed: %s", e)
         return f"STOP: Gemini error: {e}"
 
 
@@ -192,8 +234,10 @@ async def _try_auto_login(page) -> bool:
         await page.fill("input[type='password']", password)
         await page.click("button[type='submit'], input[type='submit'], button:has-text('Sign In'), button:has-text('Login'), button:has-text('Log in')")
         await page.wait_for_timeout(3000)
+        log.info("Auto-login attempted")
         return True
-    except Exception:
+    except Exception as e:
+        log.warning("Auto-login failed: %s", e)
         return False
 
 
@@ -209,20 +253,9 @@ async def act(goal: str, url: str | None = None) -> str:
                 if not dom["hasPassword"]:
                     result = _format_dom(dom)
                 else:
-                    return (
-                        "LOGIN_DETECTED: Auto-login failed. "
-                        "Save your credentials with:\n"
-                        "  python nexu-cli.py remember uni_username your_username\n"
-                        "  python nexu-cli.py remember uni_password your_password\n"
-                        "Then run the command again."
-                    )
+                    return "LOGIN_DETECTED: Auto-login failed. Save credentials with:\n  python nexu-cli.py remember uni_username your_username\n  python nexu-cli.py remember uni_password your_password"
             else:
-                return (
-                    "LOGIN_DETECTED: Please log in on the portal. "
-                    "To enable auto-login, save your credentials:\n"
-                    "  python nexu-cli.py remember uni_username your_username\n"
-                    "  python nexu-cli.py remember uni_password your_password"
-                )
+                return "LOGIN_DETECTED: Please log in. To enable auto-login, save credentials:\n  python nexu-cli.py remember uni_username your_username\n  python nexu-cli.py remember uni_password your_password"
         if result.startswith("Error"):
             return result
         dom_str = result
@@ -237,20 +270,18 @@ async def act(goal: str, url: str | None = None) -> str:
 
     for step in range(MAX_STEPS):
         decision = await _ask_gemini(dom_str, goal)
+        log.debug("Step %d: %s", step + 1, decision)
 
         if decision.startswith("DONE:"):
             return decision[5:].strip()
-
         if decision.startswith("STOP:"):
             return decision[5:].strip()
-
         if decision.startswith("LOGIN_DETECTED"):
             return decision
-
         if decision.startswith("CLICK:"):
             text_to_click = decision[6:].strip().strip('"').strip("'")
             if not text_to_click:
-                return f"STOP: Gemini returned empty CLICK at step {step + 1}"
+                return f"STOP: Empty CLICK at step {step + 1}"
             result = await click(text_to_click)
             if result.startswith("LOGIN_DETECTED"):
                 return result
@@ -258,10 +289,9 @@ async def act(goal: str, url: str | None = None) -> str:
                 return f"STOP: {result}"
             dom_str = result
             continue
+        return f"STOP: Unexpected AI response: {decision}"
 
-        return f"STOP: Unexpected response from AI: {decision}"
-
-    return "STOP: Reached maximum steps without completing the goal."
+    return "STOP: Reached maximum steps without completing."
 
 
 def navigate_sync(url: str) -> str:

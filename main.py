@@ -3,21 +3,21 @@ import sys
 import threading
 import time
 import tkinter as tk
+import argparse
 
 from pynput import keyboard
 
 from ai import Conversation, ask_stream
 from config import Config
 from memory.vector import add as save_conversation
+from nexu_log import setup_logging, get_logger
 from stt import preload_model, reset_stop, speech_to_text, stop_recording
 from tools.executor import execute
 from tts import speak, speak_sentence, speaking, stop_speaking, VOICE
 
+log = get_logger("main")
+
 VK_F4 = 0x73
-
-
-def ts():
-    return time.strftime("%H:%M:%S")
 
 
 def _try_acrylic(hwnd):
@@ -127,14 +127,14 @@ class NexuOverlay:
                 if (now - self._last_f4_time) > 0.3:
                     self._last_f4_time = now
                     if self.state == "idle":
-                        print(f"[{ts()}] F4 pressed")
+                        log.info("F4 pressed — starting listen")
                         self._start_listen()
                     elif self.state == "speaking":
-                        print(f"[{ts()}] F4 barge-in")
+                        log.info("F4 barge-in")
                         stop_speaking()
                         self._start_listen()
             elif key == keyboard.Key.f3 and self.state == "idle":
-                print(f"[{ts()}] F3 pressed — text mode")
+                log.info("F3 pressed — text mode")
                 self._start_text_mode()
         except AttributeError:
             pass
@@ -144,7 +144,7 @@ class NexuOverlay:
             if key == keyboard.Key.f4 and self.state == "listening":
                 user32 = ctypes.windll.user32
                 if not (user32.GetAsyncKeyState(VK_F4) & 0x8000):
-                    print("[nexu] F4 released via pynput")
+                    log.debug("F4 released via pynput")
                     stop_recording()
         except AttributeError:
             pass
@@ -158,19 +158,18 @@ class NexuOverlay:
                 if not (user32.GetAsyncKeyState(VK_F4) & 0x8000):
                     misses += 1
                     if misses >= 3:
-                        print("[nexu] F4 released via monitor")
+                        log.debug("F4 released via monitor")
                         stop_recording()
                         break
                 else:
                     misses = 0
                 time.sleep(0.05)
         except Exception as e:
-            print(f"[nexu] F4 monitor died: {e}")
+            log.warning("F4 monitor died: %s", e)
 
     def _start_listen(self):
         self.state = "listening"
         self._show("●  Nexu is listening...", bg="#111826", fg="#58a6ff")
-        print("[nexu] Hold F4 to talk...")
         reset_stop()
         threading.Thread(target=self._wait_for_f4_release, daemon=True).start()
         threading.Thread(target=self._process_loop, daemon=True).start()
@@ -206,7 +205,7 @@ class NexuOverlay:
                 elif msg[0] == "done":
                     _, _, tool_calls = msg
         except Exception as e:
-            print(f"[nexu] AI error: {e}")
+            log.error("AI error: %s", e)
             self.state = "idle"
             self._hide()
             return
@@ -222,8 +221,8 @@ class NexuOverlay:
             full_text = response
 
         response = full_text.split("---TOOL---")[0].strip()
-        print(f"[nexu] You (text): {text}")
-        print(f"[nexu] Nexu: {response}")
+        log.info("You (text): %s", text)
+        log.info("Nexu: %s", response)
         save_conversation("user", text)
         save_conversation("assistant", response)
         self._show_text_response(response)
@@ -259,20 +258,21 @@ class NexuOverlay:
         try:
             text = speech_to_text()
         except Exception as e:
-            print(f"[{ts()}] STT error: {e}")
+            log.error("STT error: %s", e)
+            _notify_error("Microphone error", str(e))
             self.state = "idle"
             self._hide()
             return
 
         if not text:
-            print(f"[{ts()}] No speech")
+            log.info("No speech detected")
             self.state = "idle"
             self._hide()
             return
 
-        print(f"[{ts()}] STT done  ({time.time()-t0:.1f}s)")
+        log.info("STT done (%.1fs)", time.time() - t0)
         t1 = time.time()
-        print(f"[{ts()}] You: {text}")
+        log.info("You: %s", text)
 
         self.state = "processing"
         self._show("●  Nexu is thinking...", bg="#111826", fg="#d29922")
@@ -287,7 +287,6 @@ class NexuOverlay:
                     token = msg[1]
                     full_text += token
                     tts_buffer += token
-                    print(f"\r[{ts()}] Nexu: {full_text}", end="", flush=True)
 
                     if any(token.endswith(p) for p in ".!?") and len(tts_buffer.strip()) > 3:
                         sentence = tts_buffer.strip()
@@ -299,10 +298,9 @@ class NexuOverlay:
 
                 elif msg[0] == "done":
                     _, _, tool_calls = msg
-            print()
-            print(f"[{ts()}] LLM done  ({time.time()-t1:.1f}s)")
+            log.info("LLM done (%.1fs)", time.time() - t1)
         except Exception as e:
-            print(f"\n[{ts()}] AI error: {e}")
+            log.error("AI error: %s", e)
             self.state = "idle"
             self._hide()
             return
@@ -316,20 +314,20 @@ class NexuOverlay:
 
         if tool_calls:
             t2 = time.time()
-            print(f"[{ts()}] Tools: {tool_calls}")
+            log.info("Tools: %s", tool_calls)
             self.state = "processing"
             self._show("●  Nexu is doing...", bg="#111826", fg="#d29922")
             results = []
             for call in tool_calls:
                 action = call.pop("action")
                 result = execute(action, **call)
-                print(f"[{ts()}] Tool result: {result}")
+                log.info("Tool result: %s", result)
                 results.append(result)
             response_text = ". ".join(str(r) for r in results if r)
             if response_text:
                 self.conversation.update_last(response_text)
-                print(f"[{ts()}] Tools done  ({time.time()-t2:.1f}s)")
-                print(f"[{ts()}] Result: {response_text}")
+                log.info("Tools done (%.1fs)", time.time() - t2)
+                log.info("Result: %s", response_text)
                 self.state = "speaking"
                 self._show(response_text[:80], bg="#111826", fg="#3fb950")
                 speak(response_text)
@@ -343,8 +341,7 @@ class NexuOverlay:
         if self.state == "speaking":
             self.state = "idle"
             self._hide()
-        print(f"[{ts()}] Total  ({time.time()-t0:.1f}s)")
-        print("-" * 40)
+        log.info("Total (%.1fs)", time.time() - t0)
 
     def run(self):
         print("=" * 40)
@@ -369,5 +366,21 @@ class NexuOverlay:
             self._exit()
 
 
+def _notify_error(title: str, message: str):
+    try:
+        from plyer import notification
+        notification.notify(title=title, message=message, timeout=5)
+    except Exception:
+        log.warning("Could not show notification: %s — %s", title, message)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Nexu — AI Desktop Assistant")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
+    setup_logging(debug=args.debug)
     NexuOverlay().run()

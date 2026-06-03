@@ -1,9 +1,13 @@
 from memory.store import save, get, get_all, delete
 from memory.vector import add as add_conversation, search, get_recent
+from nexu_log import get_logger
+
+log = get_logger("memory_tools")
 
 
 def remember(key: str, value: str) -> str:
     save(key, value)
+    log.info("Remembered: %s = %s", key, value)
     return f"Remembered: {key} = {value}"
 
 
@@ -23,6 +27,7 @@ def list_facts() -> str:
 
 def forget(key: str) -> str:
     delete(key)
+    log.info("Forgot: %s", key)
     return f"Forgot '{key}'"
 
 

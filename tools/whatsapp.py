@@ -6,6 +6,9 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from config import Config
+from nexu_log import get_logger
+
+log = get_logger("whatsapp")
 
 _STATE_DIR = Path.home() / ".nexu" / "whatsapp_state"
 _STATE_FILE = _STATE_DIR / "storage_state.json"
@@ -18,7 +21,6 @@ QR_WAIT_TIMEOUT = 120000
 ELEMENT_TIMEOUT = 30000
 ACTION_TIMEOUT = 15000
 INIT_TIMEOUT = 60000
-
 
 _BROWSER_MAP = {
     "chrome": "chrome",
@@ -50,14 +52,14 @@ def _ensure_browser(browser: str | None = None):
 
     raw_name = (browser or Config.WHATSAPP_BROWSER).lower()
     channel, engine = _resolve_browser(raw_name)
-    print(f"[whatsapp] Launching browser: engine={engine}, channel={channel}")
+    log.info("Launching browser: engine=%s, channel=%s", engine, channel)
 
     if _PAGE is not None:
         try:
             cur_engine = getattr(_BROWSER, '_nexu_engine', None)
             cur_channel = getattr(_BROWSER, '_nexu_channel', None)
             if cur_engine != engine or cur_channel != channel:
-                print(f"[whatsapp] Browser switch: {cur_engine}/{cur_channel} -> {engine}/{channel}")
+                log.info("Browser switch: %s/%s -> %s/%s", cur_engine, cur_channel, engine, channel)
                 close()
             else:
                 _PAGE.evaluate("1")
@@ -83,11 +85,10 @@ def _ensure_browser(browser: str | None = None):
                 _BROWSER._nexu_engine = eng
                 return True
             except Exception as e:
-                print(f"[whatsapp] Failed to launch {eng}/{ch}: {e}")
+                log.error("Failed to launch %s/%s: %s", eng, ch, e)
                 continue
         return False
 
-    # Try existing session headless first
     qr_needed = True
     if _STATE_FILE.exists():
         if _try_launch(hl=True):
@@ -99,14 +100,14 @@ def _ensure_browser(browser: str | None = None):
             _PAGE.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=INIT_TIMEOUT)
             _PAGE.wait_for_timeout(3000)
             if not _PAGE.evaluate("!!document.querySelector('canvas')"):
-                print("[whatsapp] Session restored")
+                log.info("Session restored from %s", _STATE_FILE)
                 qr_needed = False
             else:
-                print("[whatsapp] Session expired, re-launching for QR...")
+                log.info("Session expired, re-launching for QR...")
                 close()
 
     if qr_needed:
-        print("\n[whatsapp] >>> OPENING WHATSAPP FOR QR SCAN <<<")
+        log.info("Opening WhatsApp for QR scan")
         if not _try_launch(hl=False):
             raise RuntimeError("Could not launch any browser for WhatsApp")
         _CONTEXT = _BROWSER.new_context(
@@ -114,28 +115,28 @@ def _ensure_browser(browser: str | None = None):
         )
         _PAGE = _CONTEXT.new_page()
         _PAGE.goto(WHATSAPP_URL, wait_until="domcontentloaded", timeout=INIT_TIMEOUT)
-        print("\n  >>> SCAN THE QR CODE IN THE BROWSER WINDOW THAT JUST OPENED <<<\n")
+        log.info("Waiting for QR scan...")
         try:
             _PAGE.wait_for_selector("canvas", timeout=30000)
             _PAGE.wait_for_function(
                 "!document.querySelector('canvas')",
                 timeout=QR_WAIT_TIMEOUT,
             )
-            print("[whatsapp] QR scanned! Saving session...")
+            log.info("QR scanned! Saving session...")
         except Exception:
-            print("[whatsapp] QR scan timed out")
+            log.warning("QR scan timed out")
             _PAGE.wait_for_timeout(3000)
         _CONTEXT.storage_state(path=str(_STATE_FILE))
-        print("[whatsapp] Session saved to", _STATE_FILE)
+        log.info("Session saved to %s", _STATE_FILE)
 
     try:
         _PAGE.wait_for_selector(
             "div[data-testid='chat-list'], div[aria-label='Chat list']",
             timeout=30000,
         )
-        print("[whatsapp] WhatsApp Web loaded")
+        log.info("WhatsApp Web loaded")
     except Exception:
-        print("[whatsapp] Warning: Chat list not detected")
+        log.warning("Chat list not detected")
 
     return _PAGE
 
@@ -146,40 +147,28 @@ def send_message(contact_name: str, message: str, browser: str | None = None) ->
 
         search_box = page.locator("div[contenteditable='true'][data-testid='chat-list-search']")
         if search_box.count() == 0:
-            search_box = page.locator(
-                "div[contenteditable='true']"
-            ).first
+            search_box = page.locator("div[contenteditable='true']").first
 
         search_box.click()
         search_box.fill("")
         search_box.type(contact_name, delay=50)
         page.wait_for_timeout(1000)
 
-        contact_item = page.locator(
-            f"div[data-testid='chat-list'] div[aria-label*='{contact_name}']"
-        ).first
+        contact_item = page.locator(f"div[data-testid='chat-list'] div[aria-label*='{contact_name}']").first
         if contact_item.count() == 0:
-            contact_item = page.locator(
-                f"span[title='{contact_name}']"
-            ).first
+            contact_item = page.locator(f"span[title='{contact_name}']").first
         if contact_item.count() == 0:
-            contact_item = page.locator(
-                f"div[role='row']:has-text('{contact_name}')"
-            ).first
+            contact_item = page.locator(f"div[role='row']:has-text('{contact_name}')").first
 
         if contact_item.count() == 0:
-            return f"Contact '{contact_name}' not found. Make sure the name is correct and they are in your contacts."
+            return f"Contact '{contact_name}' not found."
 
         contact_item.click()
         page.wait_for_timeout(1000)
 
-        message_box = page.locator(
-            "div[contenteditable='true'][data-testid='conversation-compose-box-input']"
-        )
+        message_box = page.locator("div[contenteditable='true'][data-testid='conversation-compose-box-input']")
         if message_box.count() == 0:
-            message_box = page.locator(
-                "div[contenteditable='true']"
-            ).last
+            message_box = page.locator("div[contenteditable='true']").last
 
         message_box.click()
         message_box.type(message, delay=30)
@@ -192,8 +181,10 @@ def send_message(contact_name: str, message: str, browser: str | None = None) ->
             message_box.press("Enter")
 
         page.wait_for_timeout(1000)
+        log.info("Message sent to %s", contact_name)
         return f"Message sent to {contact_name}"
     except Exception as e:
+        log.error("Failed to send WhatsApp message: %s", e)
         return f"Failed to send WhatsApp message: {e}"
 
 
@@ -208,13 +199,9 @@ def send_message_by_number(phone_number: str, message: str, browser: str | None 
         page.goto(url, wait_until="domcontentloaded", timeout=INIT_TIMEOUT)
         page.wait_for_timeout(3000)
 
-        message_box = page.locator(
-            "div[contenteditable='true'][data-testid='conversation-compose-box-input']"
-        )
+        message_box = page.locator("div[contenteditable='true'][data-testid='conversation-compose-box-input']")
         if message_box.count() == 0:
-            message_box = page.locator(
-                "div[contenteditable='true']"
-            ).last
+            message_box = page.locator("div[contenteditable='true']").last
 
         message_box.click()
         message_box.type(message, delay=30)
@@ -229,6 +216,7 @@ def send_message_by_number(phone_number: str, message: str, browser: str | None 
         page.wait_for_timeout(1000)
         return f"Message sent to {phone_number}"
     except Exception as e:
+        log.error("Failed to send WhatsApp message: %s", e)
         return f"Failed to send WhatsApp message: {e}"
 
 
@@ -245,20 +233,12 @@ def read_recent_messages(limit: int = 5, browser: str | None = None) -> str:
         results = []
         for i in range(min(count, limit)):
             try:
-                chat = chats.nth(i)
-                name_el = chat.locator("span[data-testid='conversation-info-header']").first
-                msg_el = chat.locator("span[data-testid='conversation-info-header']").first
-
-                aria = chat.get_attribute("aria-label") or ""
-                name = ""
-                if aria:
-                    name = aria.split(",")[0].strip()
-
-                preview = chat.inner_text()
+                aria = chats.nth(i).get_attribute("aria-label") or ""
+                name = aria.split(",")[0].strip() if aria else "Unknown"
+                preview = chats.nth(i).inner_text()
                 lines = preview.split("\n")
                 preview_text = lines[1] if len(lines) > 1 else preview[:100]
-
-                results.append(f"{name or 'Unknown'}: {preview_text}")
+                results.append(f"{name}: {preview_text}")
             except Exception:
                 continue
 
@@ -266,6 +246,7 @@ def read_recent_messages(limit: int = 5, browser: str | None = None) -> str:
             return "Recent messages:\n" + "\n".join(results)
         return "No messages found"
     except Exception as e:
+        log.error("Failed to read messages: %s", e)
         return f"Failed to read messages: {e}"
 
 
@@ -274,9 +255,7 @@ def list_contacts(query: str = "", browser: str | None = None) -> str:
         page = _ensure_browser(browser)
 
         if query:
-            search_box = page.locator(
-                "div[contenteditable='true'][data-testid='chat-list-search']"
-            )
+            search_box = page.locator("div[contenteditable='true'][data-testid='chat-list-search']")
             if search_box.count() == 0:
                 search_box = page.locator("div[contenteditable='true']").first
             search_box.click()
@@ -303,6 +282,7 @@ def list_contacts(query: str = "", browser: str | None = None) -> str:
             return "Contacts:\n" + "\n".join(names)
         return "No contacts found"
     except Exception as e:
+        log.error("Failed to list contacts: %s", e)
         return f"Failed to list contacts: {e}"
 
 

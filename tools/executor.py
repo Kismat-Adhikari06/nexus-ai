@@ -1,37 +1,67 @@
 import json
-import re
 
 from config import Config
-from tools import browser, browser_automation, files, memory, system, whatsapp
+from nexu_log import get_logger
+
+log = get_logger("executor")
+
+_lazy_tools = {}
+
+
+def _import_tools():
+    global _lazy_tools
+    if _lazy_tools:
+        return
+    from tools import browser, browser_automation, extra, files, memory, system, whatsapp
+    _lazy_tools.update(
+        browser=browser,
+        browser_automation=browser_automation,
+        extra=extra,
+        files=files,
+        memory=memory,
+        system=system,
+        whatsapp=whatsapp,
+    )
+
+
+def _t(name: str):
+    _import_tools()
+    return _lazy_tools.get(name)
+
 
 REGISTRY = {
-    "launch_app": (system.launch_app, "Launch an application or open a website (use name='whatsapp' to open WhatsApp Web)", {"name": "app name (chrome, notepad, calculator, cmd, terminal, whatsapp, etc.)", "admin": "set to true to run as admin (optional)"}),
-    "get_battery": (system.get_battery, "Check battery percentage and charging status", {}),
-    "get_cpu": (system.get_cpu, "Check CPU usage percentage", {}),
-    "get_ram": (system.get_ram, "Check RAM usage", {}),
-    "set_volume": (system.set_volume, "Set system volume 0-100", {"level": "volume level 0-100"}),
-    "notify": (system.notify, "Send a desktop notification", {"title": "notification title", "message": "notification body"}),
-    "run_command": (system.run_command, "Run a shell command (ipconfig, dir, etc. — NOT for launching apps)", {"command": "command to execute"}),
-    "open_file": (files.open_file, "Open a file with its default app", {"path": "file path"}),
-    "open_in_vscode": (files.open_in_vscode, "Open a file or folder in VS Code", {"path": "path to file or folder"}),
-    "search_files": (files.search_files, "Search for files by name in a specific folder (default: Desktop)", {"query": "filename to search", "location": "directory to search (optional, default: Desktop)"}),
-    "find_file": (files.find_file, "Search for a file across Desktop, Documents, and Home — use when you don't know where the file is", {"filename": "exact filename or part of it to search for"}),
-    "get_file_info": (files.get_file_info, "Get file size and info", {"path": "file path"}),
-    "list_directory": (files.list_directory, "List contents of a directory (defaults to desktop if no path given)", {"path": "directory path (optional)"}),
-    "open_url": (browser.open_url, "Open a URL in the default browser", {"url": "URL to open"}),
-    "search_web": (browser.search_web, "Search Google from the browser", {"query": "search query"}),
-    "remember": (memory.remember, "Save a fact about the user", {"key": "fact name (e.g. my_name, uni_portal_url)", "value": "fact value"}),
-    "recall": (memory.recall, "Retrieve a saved fact", {"key": "fact name to recall"}),
-    "list_facts": (memory.list_facts, "List all saved facts", {}),
-    "forget": (memory.forget, "Delete a saved fact", {"key": "fact name to delete"}),
-    "search_memory": (memory.search_memory, "Search past conversations", {"query": "what to search for"}),
-    "browser_navigate": (browser_automation.navigate_sync, "Go to a URL and return all page content (links, buttons, text)", {"url": "full URL to visit"}),
-    "browser_click": (browser_automation.click_sync, "Click an element on the page by its visible text", {"text": "exact visible text of the button/link to click"}),
-    "browser_act": (browser_automation.act_sync, "Automatically navigate a page to find information. Use this for portals, dashboards, or any page where you need to click multiple things to reach the target.", {"goal": "what the user wants to find (e.g. today's timetable)", "url": "starting URL (optional if already on a page)"}),
-    "send_whatsapp": (whatsapp.send_message, "Send a WhatsApp message to a saved contact by name", {"contact_name": "contact name exactly as saved in your phone", "message": "message text to send", "browser": "browser to use (chrome, msedge, firefox) (optional)"}),
-    "send_whatsapp_number": (whatsapp.send_message_by_number, "Send a WhatsApp message to a phone number (not saved as contact)", {"phone_number": "phone number with country code (e.g. +919876543210)", "message": "message text to send", "browser": "browser to use (chrome, msedge, firefox) (optional)"}),
-    "read_whatsapp": (whatsapp.read_recent_messages, "Read your most recent WhatsApp messages", {"limit": "number of messages to read (optional, default 5)", "browser": "browser to use (chrome, msedge, firefox) (optional)"}),
-    "list_whatsapp_contacts": (whatsapp.list_contacts, "Search your WhatsApp contacts", {"query": "search term to filter contacts (optional)", "browser": "browser to use (chrome, msedge, firefox) (optional)"}),
+    "launch_app": ("tools.system.launch_app", "Launch an application or open a website", {"name": "app name (chrome, notepad, calculator, cmd, terminal, whatsapp, etc.)", "admin": "set to true to run as admin (optional)"}),
+    "get_battery": ("tools.system.get_battery", "Check battery percentage and charging status", {}),
+    "get_cpu": ("tools.system.get_cpu", "Check CPU usage percentage", {}),
+    "get_ram": ("tools.system.get_ram", "Check RAM usage", {}),
+    "set_volume": ("tools.system.set_volume", "Set system volume 0-100", {"level": "volume level 0-100"}),
+    "notify": ("tools.system.notify", "Send a desktop notification", {"title": "notification title", "message": "notification body"}),
+    "run_command": ("tools.system.run_command", "Run a shell command", {"command": "command to execute"}),
+    "open_file": ("tools.files.open_file", "Open a file with its default app", {"path": "file path"}),
+    "open_in_vscode": ("tools.files.open_in_vscode", "Open a file or folder in VS Code", {"path": "path to file or folder"}),
+    "search_files": ("tools.files.search_files", "Search for files by name in a specific folder", {"query": "filename to search", "location": "directory to search (optional)"}),
+    "find_file": ("tools.files.find_file", "Search for a file across Desktop, Documents, and Home", {"filename": "exact filename or part of it to search for"}),
+    "get_file_info": ("tools.files.get_file_info", "Get file size and info", {"path": "file path"}),
+    "list_directory": ("tools.files.list_directory", "List contents of a directory", {"path": "directory path (optional)"}),
+    "open_url": ("tools.browser.open_url", "Open a URL in the default browser", {"url": "URL to open"}),
+    "search_web": ("tools.browser.search_web", "Search Google from the browser", {"query": "search query"}),
+    "remember": ("tools.memory.remember", "Save a fact about the user", {"key": "fact name", "value": "fact value"}),
+    "recall": ("tools.memory.recall", "Retrieve a saved fact", {"key": "fact name to recall"}),
+    "list_facts": ("tools.memory.list_facts", "List all saved facts", {}),
+    "forget": ("tools.memory.forget", "Delete a saved fact", {"key": "fact name to delete"}),
+    "search_memory": ("tools.memory.search_memory", "Search past conversations", {"query": "what to search for"}),
+    "browser_navigate": ("tools.browser_automation.navigate_sync", "Go to a URL and return all page content", {"url": "full URL to visit"}),
+    "browser_click": ("tools.browser_automation.click_sync", "Click an element on the page by its visible text", {"text": "exact visible text of the button/link to click"}),
+    "browser_act": ("tools.browser_automation.act_sync", "Automatically navigate a page to find information", {"goal": "what the user wants to find", "url": "starting URL (optional)"}),
+    "send_whatsapp": ("tools.whatsapp.send_message", "Send a WhatsApp message to a saved contact", {"contact_name": "contact name exactly as saved", "message": "message text to send"}),
+    "send_whatsapp_number": ("tools.whatsapp.send_message_by_number", "Send a WhatsApp message to a phone number", {"phone_number": "phone number with country code", "message": "message text to send"}),
+    "read_whatsapp": ("tools.whatsapp.read_recent_messages", "Read your most recent WhatsApp messages", {"limit": "number of messages to read (optional)"}),
+    "list_whatsapp_contacts": ("tools.whatsapp.list_contacts", "Search your WhatsApp contacts", {"query": "search term (optional)"}),
+    "clipboard_read": ("tools.extra.clipboard_read", "Read current clipboard content", {}),
+    "clipboard_copy": ("tools.extra.clipboard_copy", "Copy text to clipboard", {"text": "text to copy"}),
+    "screenshot": ("tools.extra.screenshot", "Take a screenshot and save it", {}),
+    "read_pdf": ("tools.extra.read_pdf", "Read text from a PDF file", {"path": "path to PDF file"}),
+    "play_youtube": ("tools.extra.play_youtube", "Search and play a song/video on YouTube", {"query": "song name or search query"}),
 }
 
 
@@ -41,7 +71,6 @@ def build_tool_prompt() -> str:
     ]
     for name, (_, desc, params) in REGISTRY.items():
         if params:
-            param_str = ", ".join(f"{k}: {v}" for k, v in params.items())
             keys = ", ".join(f'"{k}": ...' for k in params)
             lines.append(f"  {name} — {desc}")
             lines.append(f'    JSON: {{"action": "{name}", {keys}}}')
@@ -51,39 +80,20 @@ def build_tool_prompt() -> str:
     lines.append("")
     lines.append("Format: respond naturally, then on a new line add ---TOOL--- then the JSON.")
     lines.append("Use forward slashes for paths, e.g. C:/Users/name/Desktop.")
-    lines.append("CRITICAL: To OPEN an application (e.g. 'open chrome', 'launch notepad'),")
-    lines.append("  ALWAYS use the launch_app tool. NEVER use run_command to open apps.")
+    lines.append("CRITICAL — NEVER use any tool for casual conversation, greetings, or small talk.")
+    lines.append("  Just reply naturally. Tools are only for file/system/browser/action requests.")
     lines.append("MEMORY: Use 'remember' when the user says 'remember this'. Use 'recall' when")
-    lines.append("  they ask 'what is...' about a fact. Use 'search_memory' for past conversations.")
+    lines.append("  they ask 'what is...' about a fact you DON'T already know. Use 'search_memory' for past conversations.")
     lines.append("BROWSER AUTOMATION: Use 'browser_act' when the user wants to CHECK, FIND, or")
-    lines.append("  EXTRACT something from a website (timetable, grades, portal info).")
-    lines.append("  The goal should be a short description of what the user wants.")
-    lines.append("  Only use 'browser_navigate' or 'browser_click' for manual step-by-step control.")
-    lines.append("WHATSAPP TOOLS (sending/reading messages):")
-    lines.append("  'send_whatsapp' — send a message to a saved contact (ONLY if user gives a contact name + message)")
-    lines.append("  'send_whatsapp_number' — send to a number not in contacts")
-    lines.append("  'read_whatsapp' — read recent messages")
-    lines.append("  These tools open WhatsApp Web internally via Playwright (in background, or visible on first scan).")
-    lines.append("  Do NOT call launch_app before them — they handle their own browser.")
-    lines.append("  Add 'browser': 'edge' (or 'chrome', 'firefox') to pick which browser opens WhatsApp.")
-    lines.append("  Examples:")
-    lines.append('    User says "send mom hi" → use send_whatsapp with contact_name="Mom", message="hi"')
-    lines.append('    User says "check my whatsapp" → use read_whatsapp')
-    lines.append('    User says "open whatsapp and check messages" → use read_whatsapp (NOT launch_app)')
-    lines.append("")
-    lines.append("LAUNCHING WHATSAPP (just opening the browser tab, not interacting):")
-    lines.append("  If user ONLY says 'open whatsapp' or 'launch whatsapp' with NO request to read/send,")
-    lines.append("  use launch_app with name='whatsapp'. Do NOT use send_whatsapp.")
-    lines.append("FILE SEARCH GUIDANCE:")
-    lines.append("  - If the user asks 'find X' or 'where is X', first try 'find_file' (searches Desktop/Documents/Home).")
-    lines.append("  - If 'find_file' fails, use 'list_directory' to look inside a specific folder the user mentioned.")
-    lines.append("  - Use 'search_files' with a 'location' parameter to narrow the search to a specific folder.")
-    lines.append("  - 'search_files' without location only searches the Desktop (fast).")
-    lines.append("  - Do NOT say 'I can't find it' immediately — try multiple search approaches first.")
-    lines.append("Example for battery:")
-    lines.append("  Your battery is at 80%.")
-    lines.append("  ---TOOL---")
-    lines.append('  {"action": "get_battery"}')
+    lines.append("  EXTRACT something from a website. The goal should be a short description.")
+    lines.append("WHATSAPP TOOLS: 'send_whatsapp', 'read_whatsapp', 'list_whatsapp_contacts'")
+    lines.append("CLIPBOARD: 'clipboard_read' to see clipboard, 'clipboard_copy' to copy text")
+    lines.append("SCREENSHOT: 'screenshot' to capture screen")
+    lines.append("PDF: 'read_pdf' to extract text from a PDF file")
+    lines.append("YOUTUBE: 'play_youtube' to search and play a song/video — use when the user says")
+    lines.append("  'play X on YouTube', 'play X on yt', or 'play X song'.")
+    lines.append("FILE SEARCH: If the user asks 'find X', first try 'find_file'. If that fails,")
+    lines.append("  use 'list_directory' to look inside folders. Do NOT give up immediately.")
     return "\n".join(lines)
 
 
@@ -102,9 +112,24 @@ def parse_tool_calls(text: str) -> list:
 def execute(action: str, **kwargs) -> str:
     entry = REGISTRY.get(action)
     if entry is None:
+        log.warning("Unknown tool: %s", action)
         return f"Unknown tool: {action}"
-    fn = entry[0]
+
+    module_path, func_name = entry[0].rsplit(".", 1)
     try:
+        tool_name = module_path.split(".")[1]
+        mod = _t(tool_name)
+        if mod is None:
+            import importlib
+            mod = importlib.import_module(module_path)
+        fn = getattr(mod, func_name)
+    except (ImportError, AttributeError) as e:
+        log.error("Failed to load tool %s: %s", action, e)
+        return f"Failed to load tool {action}: {e}"
+
+    try:
+        log.info("Executing tool: %s %s", action, kwargs)
         return fn(**kwargs)
     except Exception as e:
-        return f"Error executing {action}: {e}"
+        log.error("Tool %s failed: %s", action, e)
+        return f"I couldn't do that — {e}. Does the file/resource still exist?"

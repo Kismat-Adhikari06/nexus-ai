@@ -1,96 +1,60 @@
-# Nexu — AI Desktop Assistant for Windows
+# Nexu — AI Desktop Voice Assistant
 
-## Vision
-A voice-controlled AI assistant that lives in your system tray, understands your files/projects/university context, and can do anything you can do on your laptop — open files, browse the web, send WhatsApp messages, launch apps, check portals.
+## Status: ✅ Phase 5 Complete
 
-## Core Philosophy
-- **Low-end first:** Runs on 8GB RAM, i5, Iris Xe. No heavy frameworks.
-- **Hybrid AI:** Use cloud APIs (Groq, Gemini) when online; LM Studio with Qwen when offline.
-- **Tool-based architecture:** AI doesn't guess — it emits structured commands that the system executes.
-- **Memory-first:** Remembers your university portal URL, where projects live, what you're working on.
-
-## High-Level Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│              Hotkey Listener (pynput)            │
-│         Push-to-talk → Record mic audio          │
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│           Speech-to-Text (whisper.cpp)           │
-│           Audio → Text transcription             │
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│           AI Brain (Groq / Gemini / LM Studio)   │
-│     Takes transcription + memory context         │
-│     Returns: response text + tool calls          │
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│            Tool Executor (Python layer)          │
-│  Interprets tool calls → controls laptop        │
-│  - open_file, open_browser, launch_app          │
-│  - send_whatsapp, read_notifications            │
-│  - search_files, check_portal                   │
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│           Text-to-Speech (edge-tts)             │
-│           Response text → spoken audio          │
-└─────────────────────────────────────────────────┘
-```
-
-## Tech Stack
-
-| Component | Choice | Why |
-|-----------|--------|-----|
-| Language | Python 3.11+ | Best Windows system control + ML ecosystem |
-| STT | whisper.cpp (tiny) / faster-whisper | Offline, low RAM |
-| TTS | edge-tts | Free, natural, uses Windows, no GPU |
-| Hotkey | pynput + keyboard | Global push-to-talk |
-| System Tray | pystray | Minimizes to tray |
-| AI Backend | Groq API / Gemini / LM Studio | Hybrid cloud+local |
-| Computer Control | pyautogui + subprocess + win32api | Full Windows control |
-| WhatsApp | playwright (web.whatsapp.com) | Reliable programmatic access |
-| Memory | sqlite3 + chromadb | Simple + vector search |
-| Notifications | win10toast | Non-intrusive alerts |
-| Packaging | PyInstaller | Single .exe |
-
-## Project Structure
-
-```
-nexuv2/
-├── main.py              # Entry point — tray icon + hotkey
-├── stt.py               # Speech-to-text module
-├── tts.py               # Text-to-speech module
-├── ai.py                # AI backend (Groq/Gemini/LM Studio)
-├── tools/               # All computer control tools
-│   ├── __init__.py
-│   ├── files.py         # Open files, search, launch apps
-│   ├── browser.py       # Open URLs, scrape, check portals
-│   ├── whatsapp.py      # Send WhatsApp messages
-│   └── system.py        # Volume, brightness, shutdown etc.
-├── memory/
-│   ├── __init__.py
-│   ├── store.py         # SQLite key-value memory
-│   └── vector.py        # ChromaDB semantic memory
-├── config.py            # API keys, paths, settings
-├── requirements.txt
-└── README.md
-```
+An AI voice assistant for Windows. Local-first, cloud-enhanced.
 
 ## Phases
 
-1. **Phase 1: Voice Loop** — Hotkey → STT → AI → TTS (core conversation)
-2. **Phase 2: Tool System** — File ops, browser, app launching
-3. **Phase 3: Memory** — Remember portals, projects, preferences
-4. **Phase 4: WhatsApp** — Send messages, read chats
-5. **Phase 5: Polish** — Packaging, error handling, noise filtering
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Core Voice Loop (STT → AI → TTS) | ✅ Done |
+| 2 | Computer Control Tools | ✅ Done |
+| 3 | Memory & Context | ✅ Done |
+| 4 | WhatsApp Integration | ✅ Done |
+| 5 | Polish & Packaging | ✅ Done |
 
-## Constraints
-- Must idle under 200MB RAM
-- No Electron, no Node.js runtime (except sidecar if needed)
-- Offline-capable with LM Studio fallback
-- All data stays local unless using cloud API explicitly
+## Architecture
+
+- **main.py** — Tkinter overlay + hotkey orchestrator
+- **stt.py** — PyAudio recording → Groq Whisper API transcription
+- **ai.py** — Multi-provider AI (Groq / Gemini / OpenRouter / LM Studio)
+- **tts.py** — edge-tts + pygame playback
+- **config.py** — Settings (JSON user config + .env API keys)
+- **nexu_log.py** — Structured logging (file + console)
+- **nexu-cli.py** — CLI mode for text commands
+- **ui_config.py** — Tkinter settings window
+- **wake_word.py** — Optional "Hey Nexu" wake word detection
+
+### Tools (`tools/`)
+- `files.py` — Open, search, find, list files
+- `system.py` — Launch apps, battery/CPU/RAM, volume, notify
+- `browser.py` — Open URLs, search Google
+- `browser_automation.py` — AI-guided web navigation (Playwright + Gemini)
+- `whatsapp.py` — WhatsApp Web messaging (Playwright)
+- `memory.py` — Fact storage wrapper + conversation search
+- `extra.py` — Clipboard, screenshot, PDF reader
+- `executor.py` — Tool registry, JSON parsing, lazy loading
+
+### Memory (`memory/`)
+- `store.py` — SQLite key-value facts
+- `vector.py` — SQLite FTS5 conversation history
+
+## Packaging
+
+```bash
+build.bat        # Build single .exe with PyInstaller
+install.bat      # Install with auto-start + shortcut
+```
+
+## Usage
+
+- **F4 (hold)** — Voice mode
+- **F3** — Text mode
+- **Esc** — Exit
+
+## Architecture Principles
+- Low-end first (8GB RAM, i5)
+- Hybrid cloud+local AI
+- Tool-based architecture
+- Memory-first design

@@ -7,8 +7,12 @@ import pyaudio
 from groq import Groq
 
 from config import Config
+from nexu_log import get_logger
+
+log = get_logger("stt")
 
 _stop_flag = threading.Event()
+_audio_save_dir = os.path.join(str(os.path.expanduser("~")), ".nexu", "debug_audio")
 
 
 def stop_recording():
@@ -23,47 +27,61 @@ def _level_bar(amplitude: int) -> str:
 
 
 def record_audio() -> str | None:
-    audio = pyaudio.PyAudio()
-    stream = audio.open(
-        format=pyaudio.paInt16,
-        channels=Config.MIC_CHANNELS,
-        rate=Config.MIC_SAMPLE_RATE,
-        input=True,
-        frames_per_buffer=Config.MIC_CHUNK,
-        input_device_index=Config.MIC_DEVICE_INDEX,
-    )
+    try:
+        audio = pyaudio.PyAudio()
+    except Exception as e:
+        log.error("Failed to initialize PyAudio (mic unavailable): %s", e)
+        return None
 
+    stream = None
     frames = []
     silent_chunks = 0
     silence_threshold = int(Config.SILENCE_SECONDS * Config.MIC_SAMPLE_RATE / Config.MIC_CHUNK)
     max_chunks = int(Config.MAX_RECORD_SECONDS * Config.MIC_SAMPLE_RATE / Config.MIC_CHUNK)
 
-    for i in range(max_chunks):
-        if _stop_flag.is_set():
-            break
+    try:
+        stream = audio.open(
+            format=pyaudio.paInt16,
+            channels=Config.MIC_CHANNELS,
+            rate=Config.MIC_SAMPLE_RATE,
+            input=True,
+            frames_per_buffer=Config.MIC_CHUNK,
+            input_device_index=Config.MIC_DEVICE_INDEX,
+        )
+    except Exception as e:
+        log.error("Could not open audio stream: %s", e)
+        audio.terminate()
+        return None
 
-        data = stream.read(Config.MIC_CHUNK, exception_on_overflow=False)
-        frames.append(data)
+    try:
+        for i in range(max_chunks):
+            if _stop_flag.is_set():
+                break
 
-        amplitude = max(abs(int.from_bytes(data[i:i+2], "little", signed=True))
-                        for i in range(0, len(data), 2))
+            data = stream.read(Config.MIC_CHUNK, exception_on_overflow=False)
+            frames.append(data)
 
-        if amplitude < 100:
-            silent_chunks += 1
-        else:
-            silent_chunks = 0
+            amplitude = max(abs(int.from_bytes(data[i:i+2], "little", signed=True))
+                            for i in range(0, len(data), 2))
 
-        if silent_chunks >= silence_threshold and len(frames) > 30:
-            break
+            if amplitude < 100:
+                silent_chunks += 1
+            else:
+                silent_chunks = 0
 
-        if i % 3 == 0:
-            print(f"\r[stt] Mic level: {_level_bar(amplitude)}", end="", flush=True)
+            if silent_chunks >= silence_threshold and len(frames) > 30:
+                break
 
-    print()
-
-    stream.stop_stream()
-    stream.close()
-    audio.terminate()
+            if i % 3 == 0:
+                log.debug("Mic level: %s", _level_bar(amplitude))
+    except Exception as e:
+        log.error("Error during recording: %s", e)
+        return None
+    finally:
+        if stream:
+            stream.stop_stream()
+            stream.close()
+        audio.terminate()
 
     if not frames:
         return None
@@ -77,7 +95,26 @@ def record_audio() -> str | None:
         wf.setframerate(Config.MIC_SAMPLE_RATE)
         wf.writeframes(b"".join(frames))
 
+    _save_debug_audio(tmp_path, frames)
+
     return tmp_path
+
+
+def _save_debug_audio(original_path: str, frames: list[bytes]):
+    if not os.environ.get("NEXU_DEBUG_AUDIO"):
+        return
+    os.makedirs(_audio_save_dir, exist_ok=True)
+    import time
+    debug_path = os.path.join(_audio_save_dir, f"recording_{int(time.time())}.wav")
+    try:
+        with wave.open(debug_path, "wb") as wf:
+            wf.setnchannels(Config.MIC_CHANNELS)
+            wf.setsampwidth(pyaudio.PyAudio().get_sample_size(pyaudio.paInt16))
+            wf.setframerate(Config.MIC_SAMPLE_RATE)
+            wf.writeframes(b"".join(frames))
+        log.info("Saved debug audio: %s", debug_path)
+    except Exception as e:
+        log.warning("Failed to save debug audio: %s", e)
 
 
 def transcribe(audio_path: str) -> str:
@@ -95,8 +132,12 @@ def transcribe(audio_path: str) -> str:
             return text.strip()
         except Exception as e:
             last_err = e
+            log.warning("Transcription failed with key %s: %s", key[:8], e)
             continue
-    os.unlink(audio_path)
+    try:
+        os.unlink(audio_path)
+    except OSError:
+        pass
     raise last_err
 
 
@@ -105,7 +146,7 @@ def reset_stop():
 
 
 def preload_model():
-    pass
+    log.info("STT preload complete (using Groq API)")
 
 
 def speech_to_text() -> str | None:

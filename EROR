@@ -1,23 +1,208 @@
-Microsoft Windows [Version 10.0.26200.8457]
-(c) Microsoft Corporation. All rights reserved.
 
 C:\Users\kisma\Desktop\nexuv2>python nexu-cli.py play always by daniel caesar on yt
   You: play always by daniel caesar on yt
 
-08:33:26 [INFO] ai: Calling AI provider: groq (attempt 1)
+08:45:31 [INFO] ai: Calling AI provider: groq (attempt 1)
   Tools: [{'action': 'play_youtube', 'query': 'Always by Daniel Caesar'}]
-08:33:27 [INFO] browser_auto: Browser auto: using google.generativeai
-08:33:27 [INFO] executor: Executing tool: play_youtube {'query': 'Always by Daniel Caesar'}
-08:33:27 [INFO] extra: YouTube search: https://www.youtube.com/results?search_query=Always%20by%20Daniel%20Caesar
-08:33:38 [ERROR] extra: YouTube playback failed: Page.goto: net::ERR_ABORTED at https://www.youtube.com/watch?v=pKFd12id5oQ&list=RDpKFd12id5oQ&start_radio=1&pp=ygUXQWx3YXlzIGJ5IERhbmllbCBDYWVzYXKgBwE%3D
-Call log:
-  - navigating to "https://www.youtube.com/watch?v=pKFd12id5oQ&list=RDpKFd12id5oQ&start_radio=1&pp=ygUXQWx3YXlzIGJ5IERhbmllbCBDYWVzYXKgBwE%3D", waiting until "domcontentloaded"
+08:45:32 [INFO] browser_auto: Browser auto: using google.generativeai
+08:45:32 [INFO] executor: Executing tool: play_youtube {'query': 'Always by Daniel Caesar'}
+08:45:32 [INFO] extra: YouTube search: Always by Daniel Caesar
+08:45:32 [WARNING] extra: yt-dlp not installed, falling back to search page
+  Result: Searched YouTube for 'Always by Daniel Caesar' — pick a video
 
-  Result: Failed to play on YouTube: Page.goto: net::ERR_ABORTED at https://www.youtube.com/watch?v=pKFd12id5oQ&list=RDpKFd12id5oQ&start_radio=1&pp=ygUXQWx3YXlzIGJ5IERhbmllbCBDYWVzYXKgBwE%3D
-Call log:
-  - navigating to "https://www.youtube.com/watch?v=pKFd12id5oQ&list=RDpKFd12id5oQ&start_radio=1&pp=ygUXQWx3YXlzIGJ5IERhbmllbCBDYWVzYXKgBwE%3D", waiting until "domcontentloaded"
+ Nexu: Searched YouTube for 'Always by Daniel Caesar' — pick a video
+
+C:\Users\kisma\Desktop\nexuv2>python nexu-cli.py play always by daniel caesar on yt  and pick fo rme
+  You: play always by daniel caesar on yt and pick fo rme
+
+08:45:51 [INFO] ai: Calling AI provider: groq (attempt 1)
+  Tools: [{'action': 'play_youtube', 'query': 'Always by Daniel Caesar'}]
+08:45:52 [INFO] browser_auto: Browser auto: using google.generativeai
+08:45:52 [INFO] executor: Executing tool: play_youtube {'query': 'Always by Daniel Caesar'}
+08:45:52 [INFO] extra: YouTube search: Always by Daniel Caesar
+08:45:52 [WARNING] extra: yt-dlp not installed, falling back to search page
+  Result: Searched YouTube for 'Always by Daniel Caesar' — pick a video
+
+ Nexu: Searched YouTube for 'Always by Daniel Caesar' — pick a video
+
+C:\Users\kisma\Desktop\nexuv2>
 
 
- Nexu: Failed to play on YouTube: Page.goto: net::ERR_ABORTED at https://www.youtube.com/watch?v=pKFd12id5oQ&list=RDpKFd12id5oQ&start_radio=1&pp=ygUXQWx3YXlzIGJ5IERhbmllbCBDYWVzYXKgBwE%3D
-Call log:
-  - navigating to "https://www.youtube.com/watch?v=pKFd12id5oQ&list=RDpKFd12id5oQ&start_radio=1&pp=ygUXQWx3YXlzIGJ5IERhbmllbCBDYWVzYXKgBwE%3D", waiting until "domcontentloaded"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

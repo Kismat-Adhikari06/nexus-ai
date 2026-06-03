@@ -101,39 +101,38 @@ def read_pdf(path: str) -> str:
 
 
 def play_youtube(query: str) -> str:
-    from playwright.sync_api import sync_playwright
-
     log.info("YouTube search: %s", query)
 
     try:
-        p = sync_playwright().start()
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-        page = browser.new_page()
+        import yt_dlp
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+            result = ydl.extract_info(f"ytsearch1:{query}", download=False)
+            entries = result.get("entries") or []
+            if not entries:
+                raise LookupError("No results")
+            video = entries[0]
+            title = video.get("title", "Unknown")
+            watch_url = video.get("webpage_url") or video.get("url", "")
+            if not watch_url:
+                raise LookupError("No URL in result")
+    except ImportError:
+        log.warning("yt-dlp not installed, falling back to search page")
         search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-        page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(3000)
-
-        first_video = page.locator("a#video-title").first
-        if first_video.count() == 0:
-            first_video = page.locator("a[href*='/watch']").first
-        if first_video.count() == 0:
-            browser.close()
-            p.stop()
-            return f"No results found for '{query}' on YouTube"
-
-        title = (first_video.get_attribute("title") or first_video.inner_text()).strip()
-        href = first_video.get_attribute("href") or ""
-        watch_url = f"https://www.youtube.com{href}" if href.startswith("/") else href
-
-        browser.close()
-        p.stop()
-
-        subprocess.Popen(["cmd", "/c", "start", watch_url], shell=True)
-        log.info("Opened YouTube video: %s — %s", title, watch_url)
-        return f"Playing '{title}' on YouTube"
+        subprocess.Popen(["cmd", "/c", "start", search_url], shell=True)
+        return f"Searched YouTube for '{query}' — pick a video"
+    except LookupError:
+        search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+        subprocess.Popen(["cmd", "/c", "start", search_url], shell=True)
+        return f"Couldn't find '{query}' — opened search results so you can pick"
     except Exception as e:
-        log.error("YouTube playback failed: %s", e)
-        return f"Failed to play on YouTube: {e}"
+        log.error("YouTube search failed: %s", e)
+        search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+        subprocess.Popen(["cmd", "/c", "start", search_url], shell=True)
+        return f"Search failed — opened YouTube results for '{query}'"
+
+    subprocess.Popen(["cmd", "/c", "start", watch_url], shell=True)
+    log.info("Playing: %s — %s", title, watch_url)
+    return f"Playing '{title}' on YouTube"
 
 
 def _resolve_path(path: str) -> str:

@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -58,10 +59,10 @@ class Conversation:
         prompt = Config.SYSTEM_PROMPT.replace("{TOOL_PROMPT}", build_tool_prompt())
 
         try:
-            from memory.store import get_all as get_facts
+            from memory.store import get_recent as get_facts
             from memory.vector import search as search_conversations
 
-            facts = get_facts()
+            facts = get_facts(n=30)
             if facts:
                 fact_lines = "\n".join(f"  {k}: {v}" for k, v in facts.items())
                 prompt = prompt.replace(
@@ -221,6 +222,59 @@ def _call_with_fallback(messages: list, provider_name: str | None = None) -> str
     raise last_err
 
 
+_EXTRACTING = False
+
+
+def _extract_facts(user_text: str, assistant_text: str):
+    global _EXTRACTING
+    if _EXTRACTING:
+        return
+    _EXTRACTING = True
+    try:
+        from memory.store import save
+
+        combined = user_text.strip() + "|" + assistant_text.strip()
+        last = getattr(_extract_facts, "_last", "")
+        if combined == last:
+            return
+        _extract_facts._last = combined
+
+        if len(user_text.split()) < 3 and len(assistant_text.split()) < 5:
+            return
+
+        extract_prompt = (
+            "Extract factual information the user shared. "
+            "Return ONLY valid JSON lines, one per fact:\n"
+            '{"key": "snake_case_key", "value": "fact_value"}\n'
+            "Example: {\"key\": \"favorite_color\", \"value\": \"blue\"}\n"
+            "If nothing to extract, return nothing.\n\n"
+            f"User: {user_text}\nAssistant: {assistant_text}"
+        )
+
+        messages = [
+            {"role": "system", "content": "You extract user facts from conversations."},
+            {"role": "user", "content": extract_prompt},
+        ]
+
+        result = _call_with_fallback(messages)
+        for line in result.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("{") and "}" in line:
+                try:
+                    fact = json.loads(line)
+                    key = fact.get("key", "").strip()
+                    value = fact.get("value", "").strip()
+                    if key and value:
+                        save(key, value)
+                        log.info("Extracted fact: %s = %s", key, value)
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        log.debug("Fact extraction skipped: %s", e)
+    finally:
+        _EXTRACTING = False
+
+
 def ask(user_text: str, conversation: Conversation | None = None) -> tuple[str, list]:
     if conversation is None:
         conversation = Conversation()
@@ -234,6 +288,9 @@ def ask(user_text: str, conversation: Conversation | None = None) -> tuple[str, 
     text = parts[0].strip()
     tool_calls = parse_tool_calls(raw)
     conversation.add(user_text, text)
+    threading.Thread(
+        target=_extract_facts, args=(user_text, text), daemon=True
+    ).start()
     return text, tool_calls
 
 
@@ -277,6 +334,9 @@ def ask_stream(user_text: str, conversation: Conversation | None = None):
     text = full_text.split("---TOOL---")[0].strip()
     tool_calls = parse_tool_calls(full_text)
     conversation.add(user_text, text)
+    threading.Thread(
+        target=_extract_facts, args=(user_text, text), daemon=True
+    ).start()
     yield ("done", text, tool_calls)
 
 

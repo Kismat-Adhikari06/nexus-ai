@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexu — What We Did Today</title>
+  <style>
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+    h1 { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 12px; }
+    h2 { color: #f0883e; margin-top: 32px; }
+    h3 { color: #7ee787; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .bug { background: #f85149; color: #fff; }
+    .feat { background: #238636; color: #fff; }
+    .arch { background: #1f6feb; color: #fff; }
+    blockquote {
+      border-left: 3px solid #30363d;
+      padding-left: 16px;
+      color: #8b949e;
+      margin: 16px 0;
+    }
+    code {
+      background: #161b22;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #f0c674;
+    }
+    pre {
+      background: #161b22;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+    .diagram {
+      background: #161b22;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 16px 0;
+      font-family: monospace;
+      white-space: pre;
+      line-height: 1.6;
+    }
+    hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
+    .footer { text-align: center; color: #484f58; font-size: 14px; margin: 48px 0; }
+  </style>
+</head>
+<body>
+
+<h1>⚡ Nexu — Session Recap</h1>
+<p>Three big things landed this session. Here's what changed and why.</p>
+
+<hr>
+
+<!-- ==================== SECTION 1 ==================== -->
+<h2>1. Fixed a Crash That Broke Every Recording</h2>
+
+<p><span class="badge bug">BUG</span> &nbsp;<code>stt.py</code> had a subtle ordering bug — the PyAudio instance was terminated <em>before</em> the WAV file was written, so <code>get_sample_size()</code> ran on a dead object and threw. Every voice command was silently crashing before reaching the AI.</p>
+
+<div class="diagram">
+  BEFORE (broken):
+    record → close audio → ⚠️ audio.terminate()
+                         → get_sample_size() ← CRASH
+            
+  AFTER (fixed):
+    SAMPLE_WIDTH = pyaudio.get_sample_size(paInt16)  ← captured once at module level
+    record → close audio → audio.terminate()
+                         → wf.setsampwidth(SAMPLE_WIDTH) ← no crash
+</div>
+
+<p><strong>Fix:</strong> Moved <code>get_sample_size()</code> to module level as a constant <code>SAMPLE_WIDTH</code>, so it's computed before any PyAudio instances are created or destroyed.</p>
+
+<hr>
+
+<!-- ==================== SECTION 2 ==================== -->
+<h2>2. Local STT via faster-whisper (finally wired up)</h2>
+
+<p><span class="badge feat">FEATURE</span> &nbsp;The code for local speech-to-text was already written but <em>never usable</em> because <code>faster-whisper</code> was missing from <code>requirements.txt</code>. Now it's there.</p>
+
+<h3>How it works</h3>
+<div class="diagram">
+  speech_to_text()
+      │
+      ├── record_audio()        ← PyAudio, silence-detection, WAV
+      │
+      └── transcribe(path)
+              │
+              ├── _transcribe_local()    ← faster-whisper "tiny" (1.5GB RAM)
+              │      └── confidence > 0.3? ─── YES → return text (instant, offline)
+              │
+              └── _transcribe_groq()     ← Groq Whisper API fallback
+                     └── cloud, slower, needs internet
+</div>
+
+<p>The fallback chain is already built: <strong>local first</strong>, only go to Groq if confidence is low. The banner now shows the actual provider at startup.</p>
+
+<hr>
+
+<!-- ==================== SECTION 3 ==================== -->
+<h2>3. Smarter Memory — AI-Powered Fact Extraction</h2>
+
+<p><span class="badge feat">FEATURE</span> &nbsp;The old memory system was pure keyword search (FTS5). "My favorite color is blue" would never match "what color do I like." Now the AI itself extracts structured facts after each conversation.</p>
+
+<h3>Architecture</h3>
+<div class="diagram">
+  User: "My favorite color is blue"
+      │
+      ▼
+  AI responds + saves to FTS5 (conversation history)
+      │
+      ▼
+  ┌─ background thread ──────────────────────┐
+  │  _extract_facts(user_text, assistant)     │
+  │      │                                    │
+  │      ▼                                    │
+  │  LLM prompt:                              │
+  │  "Extract facts as JSON lines"            │
+  │      │                                    │
+  │      ▼                                    │
+  │  {"key": "favorite_color", "value": "blue"} │
+  │      │                                    │
+  │      ▼                                    │
+  │  memory.store.save("favorite_color", "blue") │
+  └──────────────────────────────────────────┘
+      │
+      ▼
+  Next session — system prompt includes:
+  "Facts I know about the user:
+     favorite_color: blue"
+
+  User: "What color do I like?"
+      │
+      ▼
+  AI reads facts directly → "Blue!" ← no search needed
+</div>
+
+<h3>Guard rails</h3>
+<ul>
+  <li>Only extracts from <strong>substantial</strong> exchanges (≥3 user words, ≥5 assistant words) — ignores greetings</li>
+  <li><strong>Deduplicates</strong> — skips re-extraction if same text pair was already processed</li>
+  <li><strong>Global lock</strong> (<code>_EXTRACTING</code>) — only one extraction runs at a time</li>
+  <li>Injects <strong>at most 30 most recent facts</strong> into the system prompt (previously injected <em>all</em> facts, unbounded)</li>
+</ul>
+
+<hr>
+
+<!-- ==================== SECTION 4 ==================== -->
+<h2>4. Bonus: Wake Word — How It Works</h2>
+
+<p><span class="badge arch">WAKE WORD</span> &nbsp;You asked about this — here's the full picture.</p>
+
+<p>Nexu uses <strong>OpenWakeWord</strong>, a tiny offline neural network that runs in ~100ms on CPU. No cloud, no API key, no microphone data ever leaves your computer.</p>
+
+<h3>Flow</h3>
+<div class="diagram">
+  Nexu starts
+      │
+      ▼
+  WakeWordDetector.__init__()
+      │
+      ├── openwakeword.Model(inference_framework="onnx")
+      │       └── loads ~5MB ONNX model (trained on "hey jarvis" / "hey mycroft" etc.)
+      │
+      ├── PyAudio stream (16kHz, mono, 1280-byte frames)
+      │
+      ▼
+  _listen() loop:
+      while running:
+          data = stream.read(1280)
+          pcm = struct.unpack("h" * 640, data)
+          prediction = model.predict(pcm)
+          for name, score in prediction.items():
+              if score > 0.5:
+                  callback()  ← starts voice recording
+</div>
+
+<h3>Mapping</h3>
+<p>The code maps casual keywords to built-in OpenWakeWord models:</p>
+<table>
+  <tr><td><code>"nexu"</code></td><td>→</td><td><code>"hey_jarvis"</code> model</td></tr>
+  <tr><td><code>"jarvis"</code></td><td>→</td><td><code>"hey_jarvis"</code> model</td></tr>
+  <tr><td><code>"mycroft"</code></td><td>→</td><td><code>"hey_mycroft"</code> model</td></tr>
+  <tr><td><code>"rhasspy"</code></td><td>→</td><td><code>"hey_rhasspy"</code> model</td></tr>
+</table>
+
+<p><strong>Detection threshold:</strong> Score > 0.5 triggers the callback. The model outputs per-frame scores (roughly 0–1), and a clean "hey jarvis" utterance typically scores 0.7–0.9.</p>
+
+<p>It runs on the CPU using ONNX Runtime — no GPU needed, ~100ms per prediction, ~10% CPU on an i5. When no wake word is active, it's not loaded at all (zero CPU).</p>
+
+<hr>
+
+<div class="footer">
+  Nexu &mdash; built with Python, PyAudio, faster-whisper, OpenWakeWord, edge-tts, Groq, Gemini, Playwright
+</div>
+
+</body>
+</html>

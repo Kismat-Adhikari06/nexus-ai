@@ -27,6 +27,9 @@ def _level_bar(amplitude: int) -> str:
     return "█" * filled + "░" * (bars - filled)
 
 
+SAMPLE_WIDTH = pyaudio.get_sample_size(pyaudio.paInt16)
+
+
 def record_audio() -> str | None:
     try:
         audio = pyaudio.PyAudio()
@@ -87,7 +90,7 @@ def record_audio() -> str | None:
     tmp.close()
     with wave.open(tmp_path, "wb") as wf:
         wf.setnchannels(Config.MIC_CHANNELS)
-        wf.setsampwidth(audio.get_sample_size(pyaudio.paInt16))
+        wf.setsampwidth(SAMPLE_WIDTH)
         wf.setframerate(Config.MIC_SAMPLE_RATE)
         wf.writeframes(b"".join(frames))
 
@@ -104,7 +107,7 @@ def _save_debug_audio(original_path: str, frames: list[bytes]):
     try:
         with wave.open(debug_path, "wb") as wf:
             wf.setnchannels(Config.MIC_CHANNELS)
-            wf.setsampwidth(pyaudio.PyAudio().get_sample_size(pyaudio.paInt16))
+            wf.setsampwidth(SAMPLE_WIDTH)
             wf.setframerate(Config.MIC_SAMPLE_RATE)
             wf.writeframes(b"".join(frames))
         log.info("Saved debug audio: %s", debug_path)
@@ -182,6 +185,16 @@ def transcribe(audio_path: str) -> str:
             log.warning("Groq failed, using low-confidence local result: %s", e)
             return text
         raise
+
+
+def is_local_stt_loaded() -> bool:
+    return _whisper_model is not None
+
+
+def get_stt_provider() -> str:
+    if _whisper_model is not None:
+        return f"Local (faster-whisper {Config.WHISPER_MODEL_SIZE}) + Groq fallback"
+    return "Groq whisper-large-v3-turbo"
 
 
 def reset_stop():

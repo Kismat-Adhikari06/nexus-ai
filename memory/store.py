@@ -58,6 +58,15 @@ def get_all() -> dict[str, str]:
     return dict(rows)
 
 
+def get_recent(n: int = 20) -> dict[str, str]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT key, value FROM facts ORDER BY updated_at DESC LIMIT ?",
+        (n,),
+    ).fetchall()
+    return dict(rows)
+
+
 def delete(key: str):
     conn = _get_conn()
     conn.execute("DELETE FROM facts WHERE key = ?", (key.lower(),))

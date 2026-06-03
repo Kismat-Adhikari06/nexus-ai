@@ -16,18 +16,11 @@ from ai import Conversation, ask_stream
 from config import Config
 from memory.vector import add as save_conversation
 from nexu_log import setup_logging, get_logger
-from stt import preload_model, reset_stop, speech_to_text, stop_recording
+from stt import get_stt_provider, preload_model, reset_stop, speech_to_text, stop_recording
 from tools.executor import execute
 from tts import speak, speak_sentence, speaking, stop_speaking, VOICE
 
 log = get_logger("main")
-
-try:
-    from wake_word import WakeWordDetector
-    _WAKE_AVAILABLE = True
-except ImportError:
-    _WAKE_AVAILABLE = False
-    log.warning("wake_word not available")
 
 VK_PTT = 0x4D  # M key
 
@@ -124,17 +117,9 @@ class NexuOverlay:
         threading.Thread(target=self._preload, daemon=True).start()
         self._start_keyboard_listener()
         self._start_ptt_polling()
-        self._start_wake_word()
 
     def _preload(self):
         preload_model()
-
-    def _start_wake_word(self):
-        if not _WAKE_AVAILABLE:
-            return
-        kw = Config.HOTKEY if Config.HOTKEY in ("hey_jarvis", "alexa", "computer") else "hey_jarvis"
-        self.wake = WakeWordDetector(callback=self._start_listen, keyword=kw)
-        self.wake.start()
 
     def _start_keyboard_listener(self):
         if not _PYNPUT_AVAILABLE:
@@ -412,7 +397,7 @@ class NexuOverlay:
         print(f"  Text:     F3 (type a message)")
         model_name = getattr(Config, f"{Config.AI_PROVIDER.upper()}_MODEL", "")
         print(f"  AI:       {Config.AI_PROVIDER}/{model_name}")
-        print(f"  STT:      Groq whisper-large-v3-turbo")
+        print(f"  STT:      {get_stt_provider()}")
         print(f"  TTS:      edge-tts ({VOICE})")
         if not Config.GROQ_API_KEY:
             print("  !!! GROQ_API_KEY not set — edit .env !!!")

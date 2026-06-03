@@ -6,7 +6,11 @@ import time
 import tkinter as tk
 import argparse
 
-from pynput import keyboard
+try:
+    from pynput import keyboard
+    _PYNPUT_AVAILABLE = True
+except ImportError:
+    _PYNPUT_AVAILABLE = False
 
 from ai import Conversation, ask_stream
 from config import Config
@@ -16,6 +20,8 @@ from stt import preload_model, reset_stop, speech_to_text, stop_recording
 from tools.executor import execute
 from tts import speak, speak_sentence, speaking, stop_speaking, VOICE
 
+log = get_logger("main")
+
 try:
     from wake_word import WakeWordDetector
     _WAKE_AVAILABLE = True
@@ -23,9 +29,7 @@ except ImportError:
     _WAKE_AVAILABLE = False
     log.warning("wake_word not available")
 
-log = get_logger("main")
-
-VK_F4 = 0x73
+VK_PTT = 0x4D  # M key
 
 
 def _try_acrylic(hwnd):
@@ -66,7 +70,7 @@ class NexuOverlay:
     def __init__(self):
         self.conversation = Conversation()
         self.state = "idle"
-        self._last_f4_time = 0.0
+        self._last_ptt_time = 0.0
 
         self.root = tk.Tk()
         self.root.title("Nexu")
@@ -119,6 +123,7 @@ class NexuOverlay:
 
         threading.Thread(target=self._preload, daemon=True).start()
         self._start_keyboard_listener()
+        self._start_ptt_polling()
         self._start_wake_word()
 
     def _preload(self):
@@ -132,21 +137,59 @@ class NexuOverlay:
         self.wake.start()
 
     def _start_keyboard_listener(self):
-        listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
-        listener.daemon = True
-        listener.start()
+        if not _PYNPUT_AVAILABLE:
+            log.info("pynput not available — M push-to-talk active, F3 text mode unavailable")
+            return
+        try:
+            listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+            listener.daemon = True
+            listener.start()
+        except Exception as e:
+            log.warning("pynput listener failed: %s — M polling still active", e)
+
+    def _start_ptt_polling(self):
+        def poll():
+            user32 = ctypes.windll.user32
+            was_down = False
+            release_misses = 0
+            while True:
+                is_down = bool(user32.GetAsyncKeyState(VK_PTT) & 0x8000)
+                now = time.time()
+                if is_down:
+                    if not was_down:
+                        if (now - self._last_ptt_time) > 0.3:
+                            self._last_ptt_time = now
+                            if self.state == "idle":
+                                log.info("M pressed (poll) — starting listen")
+                                self._start_listen()
+                            elif self.state == "speaking":
+                                log.info("M barge-in (poll)")
+                                stop_speaking()
+                                self._start_listen()
+                        was_down = True
+                    release_misses = 0
+                elif was_down:
+                    release_misses += 1
+                    if release_misses >= 3:
+                        was_down = False
+                        release_misses = 0
+                        if self.state == "listening":
+                            log.debug("M released (poll)")
+                            stop_recording()
+                time.sleep(0.05)
+        threading.Thread(target=poll, daemon=True).start()
 
     def _on_press(self, key):
         try:
-            if key == keyboard.Key.f4:
+            if hasattr(key, 'char') and key.char == 'm':
                 now = time.time()
-                if (now - self._last_f4_time) > 0.3:
-                    self._last_f4_time = now
+                if (now - self._last_ptt_time) > 0.3:
+                    self._last_ptt_time = now
                     if self.state == "idle":
-                        log.info("F4 pressed — starting listen")
+                        log.info("M pressed — starting listen")
                         self._start_listen()
                     elif self.state == "speaking":
-                        log.info("F4 barge-in")
+                        log.info("M barge-in")
                         stop_speaking()
                         self._start_listen()
             elif key == keyboard.Key.f3 and self.state == "idle":
@@ -157,37 +200,39 @@ class NexuOverlay:
 
     def _on_release(self, key):
         try:
-            if key == keyboard.Key.f4 and self.state == "listening":
+            if hasattr(key, 'char') and key.char == 'm' and self.state == "listening":
                 user32 = ctypes.windll.user32
-                if not (user32.GetAsyncKeyState(VK_F4) & 0x8000):
-                    log.debug("F4 released via pynput")
+                if not (user32.GetAsyncKeyState(VK_PTT) & 0x8000):
+                    log.debug("M released via pynput")
                     stop_recording()
         except AttributeError:
             pass
 
-    def _wait_for_f4_release(self):
+    def _wait_for_ptt_release(self):
         try:
             user32 = ctypes.windll.user32
             time.sleep(0.15)
             misses = 0
             while self.state == "listening":
-                if not (user32.GetAsyncKeyState(VK_F4) & 0x8000):
+                if not (user32.GetAsyncKeyState(VK_PTT) & 0x8000):
                     misses += 1
                     if misses >= 3:
-                        log.debug("F4 released via monitor")
+                        log.debug("M released via monitor")
                         stop_recording()
                         break
                 else:
                     misses = 0
                 time.sleep(0.05)
         except Exception as e:
-            log.warning("F4 monitor died: %s", e)
+            log.warning("M monitor died: %s", e)
 
     def _start_listen(self):
+        if self.state not in ("idle", "speaking"):
+            return
         self.state = "listening"
         self._show("●  Nexu is listening...", bg="#111826", fg="#58a6ff")
         reset_stop()
-        threading.Thread(target=self._wait_for_f4_release, daemon=True).start()
+        threading.Thread(target=self._wait_for_ptt_release, daemon=True).start()
         threading.Thread(target=self._process_loop, daemon=True).start()
 
     def _start_text_mode(self):
@@ -363,7 +408,7 @@ class NexuOverlay:
         print("=" * 40)
         print("  Nexu — AI Desktop Assistant")
         print("=" * 40)
-        print(f"  Voice:    F4 (hold to talk)")
+        print(f"  Voice:    M (hold to talk)")
         print(f"  Text:     F3 (type a message)")
         model_name = getattr(Config, f"{Config.AI_PROVIDER.upper()}_MODEL", "")
         print(f"  AI:       {Config.AI_PROVIDER}/{model_name}")

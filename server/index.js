@@ -47,36 +47,20 @@ app.post('/api/browser/navigate', async (req, res) => {
   try { res.json({ result: await browser.navigate(req.body.url) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/click', async (req, res) => {
-  try { res.json({ result: await browser.clickElement(req.body.selector) }); }
+app.post('/api/browser/snapshot', async (req, res) => {
+  try { res.json({ result: await browser.snapshot() }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/type', async (req, res) => {
-  try { res.json({ result: await browser.typeInto(req.body.selector, req.body.text) }); }
+app.post('/api/browser/act', async (req, res) => {
+  try { res.json({ result: await browser.act(req.body.refId, req.body.action, req.body.value) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/extractText', async (req, res) => {
+  try { res.json({ result: await browser.extractText(req.body.selector) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
 app.post('/api/browser/screenshot', async (req, res) => {
   try { res.json({ result: await browser.screenshot() }); }
-  catch (e) { res.json({ result: `Error: ${e.message}` }); }
-});
-app.post('/api/browser/getText', async (req, res) => {
-  try { res.json({ result: await browser.getPageText() }); }
-  catch (e) { res.json({ result: `Error: ${e.message}` }); }
-});
-app.post('/api/browser/scroll', async (req, res) => {
-  try { res.json({ result: await browser.scrollPage(req.body.direction, req.body.amount) }); }
-  catch (e) { res.json({ result: `Error: ${e.message}` }); }
-});
-app.post('/api/browser/evaluate', async (req, res) => {
-  try { res.json({ result: await browser.evaluateJS(req.body.code) }); }
-  catch (e) { res.json({ result: `Error: ${e.message}` }); }
-});
-app.post('/api/browser/pageInfo', async (req, res) => {
-  try { res.json({ result: await browser.getPageInfo() }); }
-  catch (e) { res.json({ result: `Error: ${e.message}` }); }
-});
-app.post('/api/browser/waitFor', async (req, res) => {
-  try { res.json({ result: await browser.waitForElement(req.body.selector, req.body.timeout) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
 

@@ -48,18 +48,14 @@ export function searchFiles(query: string, location?: string) { return callBacke
 export function findFile(filename: string) { return callBackend('/api/files/find', { filename }); }
 export function getFileInfo(path: string) { return callBackend('/api/files/info', { path }); }
 export function listDirectory(path?: string) { return callBackend('/api/files/list', { path }); }
-// Browser tools
+// Browser tools (Playwright)
 export function openUrl(url: string) { return callBackend('/api/browser/open', { url }); }
 export function searchWeb(query: string) { return callBackend('/api/browser/search', { query: stripFiller(query) }); }
 export function browserNavigate(url: string) { return callBackend('/api/browser/navigate', { url }); }
-export function browserClick(selector: string) { return callBackend('/api/browser/click', { selector }); }
-export function browserType(selector: string, text: string) { return callBackend('/api/browser/type', { selector, text }); }
+export function browserSnapshot() { return callBackend('/api/browser/snapshot'); }
+export function browserAct(refId: string, action: string, value?: string) { return callBackend('/api/browser/act', { refId, action, value }); }
+export function browserExtractText(selector: string) { return callBackend('/api/browser/extractText', { selector }); }
 export function browserScreenshot() { return callBackend('/api/browser/screenshot'); }
-export function browserGetText() { return callBackend('/api/browser/getText'); }
-export function browserScroll(direction: string, amount?: number) { return callBackend('/api/browser/scroll', { direction, amount }); }
-export function browserEvaluate(code: string) { return callBackend('/api/browser/evaluate', { code }); }
-export function browserPageInfo() { return callBackend('/api/browser/pageInfo'); }
-export function browserWaitFor(selector: string, timeout?: number) { return callBackend('/api/browser/waitFor', { selector, timeout }); }
 
 // Extra tools
 export function clipboardRead() {

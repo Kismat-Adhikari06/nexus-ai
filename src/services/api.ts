@@ -43,28 +43,21 @@ File Tools:
     {"action": "read_pdf", "path": "C:/path/to/document.pdf"}
 
 Browser Tools (Playwright — persistent headless browser):
-  open_url — Navigate to a URL and return page content
+  open_url — Navigate to a URL and return page content + snapshot
     {"action": "open_url", "url": "https://example.com"}
-  search_web — Search Google and return results
+  search_web — Search Google and return results + snapshot
     {"action": "search_web", "query": "weather today"}
   browser_navigate — Navigate to a URL
     {"action": "browser_navigate", "url": "https://example.com"}
-  browser_click — Click an element on the page
-    {"action": "browser_click", "selector": "#button-id"}
-  browser_type — Type text into an input field
-    {"action": "browser_type", "selector": "#search-input", "text": "hello world"}
-  browser_screenshot — Take a screenshot of the current page
+  browser_snapshot — Get a numbered list of all interactive and readable elements on the page
+    {"action": "browser_snapshot"}
+  browser_act — Click or type on an element by its ref ID (from snapshot). Use 'click' or 'type' action.
+    {"action": "browser_act", "refId": "3", "action": "click"}
+    {"action": "browser_act", "refId": "3", "action": "type", "value": "hello"}
+  browser_extract_text — Extract text from a specific CSS selector
+    {"action": "browser_extract_text", "selector": "#main"}
+  browser_screenshot — Take a screenshot of the current page (returns base64 image)
     {"action": "browser_screenshot"}
-  browser_get_text — Get all visible text from the current page
-    {"action": "browser_get_text"}
-  browser_scroll — Scroll the page in a direction (up/down/left/right)
-    {"action": "browser_scroll", "direction": "down", "amount": 300}
-  browser_page_info — Get the current page title and URL
-    {"action": "browser_page_info"}
-  browser_evaluate — Run JavaScript in the browser page
-    {"action": "browser_evaluate", "code": "document.title"}
-  browser_wait_for — Wait for an element to appear on the page
-    {"action": "browser_wait_for", "selector": ".result", "timeout": 5000}
 
 Memory Tools:
   remember — Save a fact about the user

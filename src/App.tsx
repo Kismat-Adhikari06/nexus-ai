@@ -4,10 +4,11 @@ import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
 import MemoryView from './components/MemoryView';
 import Settings from './components/Settings';
+import Connections from './components/Connections';
 import ChatInput from './components/ChatInput';
 import { useVoiceRecorder } from './hooks/useVoiceRecorder';
 import { getAIResponse, parseToolCalls, stripFiller } from './services/api';
-import { getRecentFacts, listFacts, saveFact, getFact, deleteFact, addToHistory, searchHistory } from './services/memory';
+import { getRecentFacts, listFacts, saveFact, getFactValue, deleteFact, addToHistory, searchHistory, approveFact, rejectFact, getPendingFacts } from './services/memory';
 import { transcribeAudio } from './services/stt';
 import { speak, isSpeaking, stopSpeaking } from './services/tts';
 import { extractFacts } from './services/facts';
@@ -17,6 +18,7 @@ import type { AppStatus, AppView, Message, Conversation } from './types';
 const LS_KEYS = 'nexu:groqApiKey';
 const LS_GEMINI = 'nexu:geminiApiKey';
 const LS_PROVIDER = 'nexu:provider';
+const LS_CONVERSATIONS = 'nexu:conversations';
 
 function generateId() {
   return crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -56,9 +58,17 @@ const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | str
   screenshot: tools.screenshot,
   play_youtube: (query) => tools.playYoutube(String(query)),
   remember: (key, value) => saveFact(String(key), String(value)),
-  recall: (key) => getFact(String(key)) || `I don't have anything saved for '${key}'`,
+  recall: (key) => getFactValue(String(key)) || `I don't have anything saved for '${key}'`,
   list_facts: () => listFacts(),
   forget: (key) => deleteFact(String(key)),
+  approve_fact: (key) => {
+    const result = approveFact(String(key));
+    return result ? `Approved fact '${key}'.` : `No pending fact found for '${key}'.`;
+  },
+  reject_fact: (key) => {
+    const result = rejectFact(String(key));
+    return result ? `Rejected fact '${key}'.` : `No pending fact found for '${key}'.`;
+  },
   search_memory: (query) => {
     const results = searchHistory(String(query), 3);
     if (results.length === 0) return `No past conversations found matching '${query}'.`;
@@ -105,6 +115,8 @@ const TOOL_PARAM_KEYS: Record<string, string[]> = {
   remember: ['key', 'value'],
   recall: ['key'],
   forget: ['key'],
+  approve_fact: ['key'],
+  reject_fact: ['key'],
   read_pdf: ['path'],
   search_memory: ['query'],
   lock_workstation: [],
@@ -142,8 +154,13 @@ export default function App() {
   const [status, setStatus] = useState<AppStatus>('idle');
   const [activeView, setActiveView] = useState<AppView>('chat');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LS_CONVERSATIONS) || '[]');
+    } catch { return []; }
+  });
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
+  const currentConvIdRef = useRef<string | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [groqApiKey, setGroqApiKey] = useState(() => loadSetting(LS_KEYS, ''));
@@ -166,10 +183,45 @@ export default function App() {
     }
   }, [status]);
 
+  // Generate a title from the first user message
+  const generateTitle = useCallback((msgs: Message[]): string => {
+    const firstUserMsg = msgs.find(m => m.role === 'user');
+    if (!firstUserMsg) return 'New conversation';
+    const text = firstUserMsg.content.trim();
+    return text.length > 45 ? text.substring(0, 42) + '...' : text;
+  }, []);
+
+  // Keep current conversation in sync with messages
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const convId = currentConvIdRef.current;
+    if (convId) {
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, messages, title: generateTitle(messages), updatedAt: Date.now() } : c
+      ));
+    } else {
+      const id = generateId();
+      currentConvIdRef.current = id;
+      setActiveConversation(id);
+      setConversations(prev => [...prev, {
+        id,
+        title: generateTitle(messages),
+        messages,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }]);
+    }
+  }, [messages, generateTitle]);
+
+  // Persist conversations to localStorage
+  useEffect(() => {
+    try { localStorage.setItem(LS_CONVERSATIONS, JSON.stringify(conversations)); } catch { /* ignore */ }
+  }, [conversations]);
+
   const processAIResponse = useCallback(async (userText: string, currentMessages: Message[]) => {
     // Build context from memory
     const facts = Object.entries(getRecentFacts(20))
-      .map(([k, v]) => `  ${k}: ${v}`).join('\n');
+      .map(([k, v]) => `  ${k}: ${v.value}`).join('\n');
     const history = searchHistory(userText, 3)
       .map(r => `${r.role === 'user' ? 'User' : 'Nexu'}: ${r.content.substring(0, 200)}`).join('\n');
 
@@ -239,7 +291,7 @@ export default function App() {
 
         try {
           const facts = Object.entries(getRecentFacts(20))
-            .map(([k, v]) => `${k}: ${v}`).join('\n');
+            .map(([k, v]) => `${k}: ${v.value}`).join('\n');
           const history = searchHistory(text, 3)
             .map(r => `${r.role === 'user' ? 'User' : 'Nexu'}: ${r.content.substring(0, 200)}`).join('\n');
 
@@ -334,15 +386,31 @@ export default function App() {
   const handleNewChat = useCallback(() => {
     setMessages([]);
     setActiveConversation(null);
+    currentConvIdRef.current = null;
   }, []);
 
   const handleSelectConversation = useCallback((id: string) => {
     const conv = conversations.find(c => c.id === id);
     if (conv) {
+      currentConvIdRef.current = id;
       setMessages(conv.messages);
       setActiveConversation(id);
     }
   }, [conversations]);
+
+  const handleDeleteConversation = useCallback((id: string) => {
+    setConversations(prev => prev.filter(c => c.id !== id));
+    if (activeConversation === id) {
+      setMessages([]);
+      setActiveConversation(null);
+      currentConvIdRef.current = null;
+    }
+  }, [activeConversation]);
+
+  // When active conversation changes, set the ref
+  useEffect(() => {
+    currentConvIdRef.current = activeConversation;
+  }, [activeConversation]);
 
   return (
     <div className="h-screen flex flex-col bg-nexu-bg">
@@ -355,6 +423,7 @@ export default function App() {
           activeConversation={activeConversation}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
+          onDeleteConversation={handleDeleteConversation}
         />
         {activeView === 'chat' ? (
           <div className="flex-1 flex flex-col">
@@ -367,6 +436,8 @@ export default function App() {
               disabled={status === 'processing'}
             />
           </div>
+        ) : activeView === 'connections' ? (
+          <Connections />
         ) : activeView === 'settings' ? (
           <Settings
             groqApiKey={groqApiKey}

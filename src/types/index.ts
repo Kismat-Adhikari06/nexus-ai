@@ -10,7 +10,7 @@ export interface Message {
 
 export type AppStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
-export type AppView = 'chat' | 'settings' | 'memory';
+export type AppView = 'chat' | 'settings' | 'memory' | 'connections';
 
 export interface Settings {
   groqApiKey: string;

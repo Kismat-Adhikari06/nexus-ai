@@ -1,4 +1,4 @@
-import { MessageSquare, Settings, Database, Plus } from 'lucide-react';
+import { MessageSquare, Settings, Database, Plus, Link2, Trash2 } from 'lucide-react';
 import type { AppView, Conversation } from '../types';
 
 interface SidebarProps {
@@ -8,15 +8,17 @@ interface SidebarProps {
   activeConversation: string | null;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
 }
 
 const navItems: { view: AppView; label: string; icon: React.ReactNode }[] = [
   { view: 'chat', label: 'Chat', icon: <MessageSquare size={18} /> },
   { view: 'memory', label: 'Memory', icon: <Database size={18} /> },
+  { view: 'connections', label: 'Connections', icon: <Link2 size={18} /> },
   { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
 ];
 
-export default function Sidebar({ activeView, onViewChange, conversations, activeConversation, onNewChat, onSelectConversation }: SidebarProps) {
+export default function Sidebar({ activeView, onViewChange, conversations, activeConversation, onNewChat, onSelectConversation, onDeleteConversation }: SidebarProps) {
   return (
     <aside className="w-64 border-r border-nexu-border bg-nexu-surface flex flex-col h-full">
       {/* New Chat Button */}
@@ -59,18 +61,35 @@ export default function Sidebar({ activeView, onViewChange, conversations, activ
         {conversations.length === 0 ? (
           <p className="text-xs text-nexu-text-muted px-2">No conversations yet</p>
         ) : (
-          conversations.map((conv) => (
-            <button
+          conversations
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .map((conv) => (
+            <div
               key={conv.id}
-              onClick={() => onSelectConversation(conv.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors truncate cursor-pointer ${
+              className={`group flex items-center rounded-lg transition-colors ${
                 activeConversation === conv.id
-                  ? 'bg-nexu-primary-dim text-nexu-primary-hover'
-                  : 'text-nexu-text-dim hover:bg-nexu-border hover:text-nexu-text'
+                  ? 'bg-nexu-primary-dim'
+                  : 'hover:bg-nexu-border'
               }`}
             >
-              {conv.title || 'New conversation'}
-            </button>
+              <button
+                onClick={() => onSelectConversation(conv.id)}
+                className={`flex-1 text-left px-3 py-2 rounded-l-lg text-sm transition-colors truncate cursor-pointer ${
+                  activeConversation === conv.id
+                    ? 'text-nexu-primary-hover'
+                    : 'text-nexu-text-dim hover:text-nexu-text'
+                }`}
+              >
+                {conv.title || 'New conversation'}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDeleteConversation(conv.id); }}
+                className="p-2 rounded-r-lg text-nexu-text-muted hover:text-nexu-accent-red hover:bg-nexu-accent-red/10 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                title="Delete conversation"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           ))
         )}
       </div>

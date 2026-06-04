@@ -1,40 +1,61 @@
 import { saveFact, getRecentFacts } from './memory';
-import type { Message } from '../types';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 let _lastExtracted = '';
 let _extracting = false;
 
+// Skip extraction for messages that can't possibly contain user facts
+const FIRST_PERSON_PATTERN = /\b(I|me|my|mine|I'm|I've|I'd|I'll)\b/i;
+
+function shouldSkip(userText: string): boolean {
+  const words = userText.trim().split(/\s+/);
+  // Must have at least 3 words
+  if (words.length < 3) return true;
+  // Must contain first-person pronoun
+  if (!FIRST_PERSON_PATTERN.test(userText)) return true;
+  return false;
+}
+
+const EXTRACT_SYSTEM_PROMPT = `You extract ONLY personal facts the user shares about THEMSELVES.
+
+RULES:
+- ONLY extract when the user uses first-person (I, me, my, mine).
+- NEVER extract names/details about other people.
+- NEVER extract from greetings, numbers, or random text.
+- Return nothing if there's nothing factual to extract.
+
+Valid patterns: "My name is X", "I am X years old", "I live in X", "I work as X", "I like/love/hate X", "My favorite X is Y", "My wife/husband/girlfriend/boyfriend is X", "My birthday is X", "I was born on X".
+
+Return ONLY valid JSON lines, one per fact:
+{"key": "snake_case_key", "value": "fact_value", "category": "identity|preferences|relationships|important_dates|other", "confidence": 85, "source": "direct_statement"}
+
+Confidence: 90-100 if explicitly stated, 75-89 if implied, 50-74 if uncertain, below 50 = don't return.
+
+If nothing to extract, return absolutely nothing — no text at all.`;
+
 export async function extractFacts(
   userText: string,
-  assistantText: string,
+  _assistantText: string,
   groqApiKey: string
 ): Promise<void> {
   if (_extracting) return;
   if (!groqApiKey) return;
+  if (shouldSkip(userText)) return;
 
-  const combined = (userText + '|' + assistantText).trim();
-  if (combined === _lastExtracted) return;
-  if (userText.split(' ').length < 2 && assistantText.split(' ').length < 3) return;
-
-  _lastExtracted = combined;
+  // Dedup check using just user text (never re-process the same user message)
+  if (userText === _lastExtracted) return;
+  _lastExtracted = userText;
   _extracting = true;
 
   try {
     const existingFacts = Object.entries(getRecentFacts(30))
-      .map(([k, v]) => `${k}: ${v}`).join('\n');
+      .map(([k, v]) => `${k}: ${v.value}`).join('\n');
 
-    const extractPrompt = `Extract factual information the user shared. Return ONLY valid JSON lines, one per fact:
-{"key": "snake_case_key", "value": "fact_value"}
-Example: {"key": "favorite_color", "value": "blue"}
-If nothing to extract, return nothing.
-
-Existing facts (don't duplicate):
+    const extractPrompt = `Existing facts (don't duplicate):
 ${existingFacts || 'None yet'}
 
-User: ${userText}
-Assistant: ${assistantText}`;
+User message to analyze: "${userText}"`;
 
     const res = await fetch(GROQ_URL, {
       method: 'POST',
@@ -45,7 +66,7 @@ Assistant: ${assistantText}`;
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'You extract user facts from conversations. Return ONLY JSON lines.' },
+          { role: 'system', content: EXTRACT_SYSTEM_PROMPT },
           { role: 'user', content: extractPrompt },
         ],
         temperature: 0.3,
@@ -65,9 +86,14 @@ Assistant: ${assistantText}`;
           const fact = JSON.parse(trimmed);
           const key = fact.key?.trim();
           const value = fact.value?.trim();
+          const category = fact.category || 'other';
+          const confidence = typeof fact.confidence === 'number' ? fact.confidence : 100;
+          const source = fact.source || 'direct_statement';
+
           if (key && value) {
-            saveFact(key, value);
-            console.log(`Extracted fact: ${key} = ${value}`);
+            const status = confidence >= 75 ? 'saved' : 'pending';
+            saveFact(key, value, { category, confidence, source, status });
+            console.log(`Extracted fact: ${key} = ${value} (confidence: ${confidence}, status: ${status})`);
           }
         } catch { /* skip invalid JSON */ }
       }

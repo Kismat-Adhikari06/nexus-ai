@@ -18,9 +18,13 @@ Nexu is a Windows-native AI assistant accessible via the browser. It supports vo
 - Animated recording pulse and listening indicator
 
 ### 🧠 Memory & Facts
-- **Facts** — Key-value storage for remembering user preferences (e.g., "my name is Kishan"), automatically extracted from conversations by AI
-- **History** — Full conversation history with search, all stored in localStorage
-- **Memory View** — Dedicated UI to browse, search, and delete facts or review past conversations
+- **Facts** — Rich key-value storage with **categories** (identity, preferences, relationships, dates, other), **confidence scores** (0–100), **source tracking** (direct statement, chat, WhatsApp), and **status** (saved, pending, rejected)
+- **Smart Extraction** — Only extracts when user speaks in first-person ("I", "my", "me"), ignores other people's details. Confidence ≥75 auto-saves, 50–74 goes to Pending tab for approval, <50 discarded
+- **Manual Fact Entry** — Add facts yourself from the Memory tab with a key, value, and category
+- **Pending Approval** — Low-confidence facts await your approve/reject in a separate tab
+- **Inline Editing** — Edit fact values directly by clicking the edit icon
+- **Conversations** — Full chat sessions are saved to localStorage like ChatGPT, with auto-generated titles from the first message. Browse, reopen, or delete them from the sidebar
+- **History** — Individual message history with search, per-entry delete, and bulk delete
 
 ### 🛠️ Tool System
 Nexu can execute tools by parsing structured JSON from the AI response. Tools are organized into categories:
@@ -86,7 +90,12 @@ Nexu can execute tools by parsing structured JSON from the AI response. Tools ar
 | `recall` | Retrieve a saved fact |
 | `list_facts` | List all saved facts |
 | `forget` | Delete a saved fact |
+| `approve_fact` | Approve a pending fact (low-confidence) |
+| `reject_fact` | Reject a pending fact |
 | `search_memory` | Search past conversations |
+
+### 🔗 Connections
+- **WhatsApp integration** — Connect your WhatsApp via QR code (Baileys-based). Dedicated Connections page with live status, connect/disconnect, and QR page access
 
 ### ⚙️ Settings
 - API key configuration for Groq and Gemini
@@ -154,6 +163,7 @@ nexu/
 │   ├── components/         # React components
 │   │   ├── Chat.tsx        # Main chat area with scrolling
 │   │   ├── ChatInput.tsx   # Message input with auto-resize
+│   │   ├── Connections.tsx # WhatsApp connection management
 │   │   ├── Header.tsx      # Status bar component
 │   │   ├── MemoryView.tsx  # Facts & history browser
 │   │   ├── MessageBubble.tsx # Message display component

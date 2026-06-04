@@ -2,11 +2,20 @@ import { stripFiller } from './api';
 
 const API_BASE = 'http://localhost:3001';
 
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const token = localStorage.getItem('nexu:auth_token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+  } catch { /* ignore */ }
+  return headers;
+}
+
 async function callBackend(endpoint: string, body?: Record<string, unknown>): Promise<string> {
   try {
     const opts: RequestInit = {
       method: body ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
     };
     if (body) opts.body = JSON.stringify(body);
 

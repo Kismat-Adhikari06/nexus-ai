@@ -1,4 +1,4 @@
-import { MessageSquare, Settings, Database, Plus, Link2, Trash2 } from 'lucide-react';
+import { MessageSquare, Settings, Database, Plus, Link2, Trash2, LogOut } from 'lucide-react';
 import type { AppView, Conversation } from '../types';
 
 interface SidebarProps {
@@ -9,6 +9,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
+  onLogout: () => void;
 }
 
 const navItems: { view: AppView; label: string; icon: React.ReactNode }[] = [
@@ -18,7 +19,7 @@ const navItems: { view: AppView; label: string; icon: React.ReactNode }[] = [
   { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
 ];
 
-export default function Sidebar({ activeView, onViewChange, conversations, activeConversation, onNewChat, onSelectConversation, onDeleteConversation }: SidebarProps) {
+export default function Sidebar({ activeView, onViewChange, conversations, activeConversation, onNewChat, onSelectConversation, onDeleteConversation, onLogout }: SidebarProps) {
   return (
     <aside className="w-64 border-r border-nexu-border bg-nexu-surface flex flex-col h-full">
       {/* New Chat Button */}
@@ -92,6 +93,18 @@ export default function Sidebar({ activeView, onViewChange, conversations, activ
             </div>
           ))
         )}
+      </div>
+
+      {/* Logout */}
+      <div className="border-t border-nexu-border mx-3 pt-2 pb-3">
+        <button
+          onClick={onLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-nexu-text-dim hover:text-nexu-accent-red hover:bg-nexu-accent-red/10 transition-colors cursor-pointer"
+          title="Logout"
+        >
+          <LogOut size={18} />
+          Logout
+        </button>
       </div>
     </aside>
   );

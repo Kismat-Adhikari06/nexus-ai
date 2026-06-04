@@ -23,9 +23,9 @@ function FactCard({ factKey, fact, onDelete, onRefresh }: { factKey: string; fac
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(fact.value);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (editValue.trim() && editValue !== fact.value) {
-      updateFact(factKey, { value: editValue.trim() });
+      await updateFact(factKey, { value: editValue.trim() });
       onRefresh();
     }
     setEditing(false);
@@ -114,39 +114,39 @@ export default function MemoryView() {
   const [newCategory, setNewCategory] = useState<Fact['category']>('other');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const refresh = () => {
-    setFacts(getAllFacts());
-    setPending(getPendingFacts());
+  const refresh = async () => {
+    setFacts(await getAllFacts());
+    setPending(await getPendingFacts());
   };
 
   useEffect(() => { refresh(); }, []);
 
-  const handleDelete = (key: string) => {
-    deleteFact(key);
+  const handleDelete = async (key: string) => {
+    await deleteFact(key);
     refresh();
   };
 
-  const handleDeleteAll = () => {
-    clearAllFacts();
-    clearAllHistory();
+  const handleDeleteAll = async () => {
+    await clearAllFacts();
+    await clearAllHistory();
     try { localStorage.removeItem('nexu:conversations'); } catch { /* ignore */ }
     setShowDeleteConfirm(false);
     refresh();
   };
 
-  const handleApprove = (key: string) => {
-    approveFact(key);
+  const handleApprove = async (key: string) => {
+    await approveFact(key);
     refresh();
   };
 
-  const handleReject = (key: string) => {
-    rejectFact(key);
+  const handleReject = async (key: string) => {
+    await rejectFact(key);
     refresh();
   };
 
-  const handleAddFact = () => {
+  const handleAddFact = async () => {
     if (!newKey.trim() || !newValue.trim()) return;
-    saveFact(newKey.trim(), newValue.trim(), { category: newCategory, confidence: 100, source: 'direct_statement' });
+    await saveFact(newKey.trim(), newValue.trim(), { category: newCategory, confidence: 100, source: 'direct_statement' });
     setNewKey('');
     setNewValue('');
     setNewCategory('other');
@@ -264,55 +264,55 @@ export default function MemoryView() {
                 </span>
               )}
             </button>
-        </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border ${
-            showAddForm
-              ? 'bg-nexu-primary-dim border-nexu-primary/30 text-nexu-primary-hover'
-              : 'bg-nexu-surface-2 border-nexu-border text-nexu-text-dim hover:text-nexu-text hover:border-nexu-border/50'
-          }`}
-        >
-          <Plus size={16} />
-          Add
-        </button>
-        {Object.values(facts).filter(f => f.status === 'saved').length > 0 && (
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border bg-nexu-surface-2 border-nexu-border text-nexu-text-dim hover:text-nexu-accent-red hover:border-nexu-accent-red/30"
-          >
-            <Trash2 size={14} />
-            Delete All
-          </button>
-        )}
-      </div>
-
-      {/* Delete All Confirmation */}
-      {showDeleteConfirm && (
-        <div className="p-4 rounded-lg border border-nexu-accent-red/30 bg-nexu-accent-red/5 space-y-3">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={16} className="text-nexu-accent-red" />
-            <p className="text-sm font-medium text-nexu-text">Delete all saved facts?</p>
           </div>
-          <p className="text-xs text-nexu-text-dim">This cannot be undone. All facts will be permanently removed.</p>
-          <div className="flex gap-2 justify-end">
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border ${
+              showAddForm
+                ? 'bg-nexu-primary-dim border-nexu-primary/30 text-nexu-primary-hover'
+                : 'bg-nexu-surface-2 border-nexu-border text-nexu-text-dim hover:text-nexu-text hover:border-nexu-border/50'
+            }`}
+          >
+            <Plus size={16} />
+            Add
+          </button>
+          {Object.values(facts).filter(f => f.status === 'saved').length > 0 && (
             <button
-              onClick={() => setShowDeleteConfirm(false)}
-              className="px-3 py-1.5 rounded-lg text-sm text-nexu-text-dim hover:text-nexu-text bg-nexu-bg border border-nexu-border cursor-pointer transition-colors"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border bg-nexu-surface-2 border-nexu-border text-nexu-text-dim hover:text-nexu-accent-red hover:border-nexu-accent-red/30"
             >
-              Cancel
-            </button>
-            <button
-              onClick={handleDeleteAll}
-              className="px-3 py-1.5 rounded-lg text-sm text-white bg-nexu-accent-red hover:bg-nexu-accent-red/80 cursor-pointer transition-colors"
-            >
+              <Trash2 size={14} />
               Delete All
             </button>
-          </div>
+          )}
         </div>
-      )}
 
-        {/* Content */}
+        {/* Delete All Confirmation */}
+        {showDeleteConfirm && (
+          <div className="p-4 rounded-lg border border-nexu-accent-red/30 bg-nexu-accent-red/5 space-y-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={16} className="text-nexu-accent-red" />
+              <p className="text-sm font-medium text-nexu-text">Delete all saved facts?</p>
+            </div>
+            <p className="text-xs text-nexu-text-dim">This cannot be undone. All facts, history, and conversations will be permanently removed.</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3 py-1.5 rounded-lg text-sm text-nexu-text-dim hover:text-nexu-text bg-nexu-bg border border-nexu-border cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAll}
+                className="px-3 py-1.5 rounded-lg text-sm text-white bg-nexu-accent-red hover:bg-nexu-accent-red/80 cursor-pointer transition-colors"
+              >
+                Delete All
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Facts Tab */}
         {activeTab === 'facts' && (
           <div className="space-y-2">
             {filteredFacts.length === 0 ? (
@@ -331,6 +331,7 @@ export default function MemoryView() {
           </div>
         )}
 
+        {/* Pending Tab */}
         {activeTab === 'pending' && (
           <div className="space-y-2">
             {filteredPending.length === 0 ? (
@@ -386,8 +387,6 @@ export default function MemoryView() {
             )}
           </div>
         )}
-
-
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
-import { Key, Keyboard, Cpu } from 'lucide-react';
+import { useState } from 'react';
+import { Key, Keyboard, Cpu, Eye, EyeOff } from 'lucide-react';
 
 const HOTKEY_OPTIONS = ['Caps Lock', 'F4', 'F3', 'M', 'Space'];
 const PROVIDER_OPTIONS = ['auto', 'groq', 'gemini'] as const;
@@ -18,6 +19,8 @@ export default function Settings({
   groqApiKey, geminiApiKey, provider, hotkey,
   onGroqKeyChange, onGeminiKeyChange, onProviderChange, onHotkeyChange,
 }: SettingsProps) {
+  const [showGroq, setShowGroq] = useState(false);
+  const [showGemini, setShowGemini] = useState(false);
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -36,23 +39,42 @@ export default function Settings({
           <div className="space-y-3">
             <div>
               <label className="block text-xs text-nexu-text-muted mb-1.5">Groq API Key</label>
-              <input
-                type="password"
-                placeholder="gsk_..."
-                value={groqApiKey}
-                onChange={(e) => onGroqKeyChange(e.target.value)}
-                className="w-full bg-nexu-bg border border-nexu-border rounded-lg px-3 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type={showGroq ? 'text' : 'password'}
+                  placeholder="gsk_..."
+                  value={groqApiKey}
+                  onChange={(e) => onGroqKeyChange(e.target.value)}
+                  className="w-full bg-nexu-bg border border-nexu-border rounded-lg pl-3 pr-10 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGroq(!showGroq)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-nexu-surface-2 border border-nexu-border text-nexu-text-dim hover:text-nexu-text hover:border-nexu-text-muted transition-colors cursor-pointer"
+                  title={showGroq ? 'Hide key' : 'Show key'}
+                >
+                  {showGroq ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-xs text-nexu-text-muted mb-1.5">Gemini API Key</label>
-              <input
-                type="password"
-                placeholder="AIza..."
-                value={geminiApiKey}
-                onChange={(e) => onGeminiKeyChange(e.target.value)}
-                className="w-full bg-nexu-bg border border-nexu-border rounded-lg px-3 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type={showGemini ? 'text' : 'password'}
+                  placeholder="AIza..."
+                  value={geminiApiKey}
+                  onChange={(e) => onGeminiKeyChange(e.target.value)}
+                  className="w-full bg-nexu-bg border border-nexu-border rounded-lg pl-3 pr-10 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGemini(!showGemini)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-nexu-surface-2 border border-nexu-border text-nexu-text-dim hover:text-nexu-text hover:border-nexu-text-muted transition-colors cursor-pointer"
+                >
+                  {showGemini ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
           </div>
         </section>

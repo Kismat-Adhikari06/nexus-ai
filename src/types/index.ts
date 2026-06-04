@@ -22,6 +22,11 @@ export interface Settings {
   provider: 'groq' | 'gemini' | 'openrouter';
 }
 
+export interface User {
+  id: string;
+  username: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;

@@ -1,15 +1,17 @@
 const express = require('express');
 const cors = require('cors');
+const { authenticateToken } = require('./auth');
 const system = require('./tools/system');
 const files = require('./tools/files');
 const browser = require('./tools/browser');
 const extra = require('./tools/extra');
 const pdf = require('./tools/pdf');
 const whatsapp = require('./tools/whatsapp');
+const storageRouter = require('./routes/storage');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // System tools
 app.get('/api/system/lock', (_, res) => res.json({ result: system.lockWorkstation() }));
@@ -309,11 +311,66 @@ app.post('/api/whatsapp/connect', async (_, res) => {
   }
 });
 
+// ─── Auth Routes ────────────────────────────────────────────────────────────
+const { register, login } = require('./auth');
+
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    const result = register(username, password);
+    res.json({ result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const result = login(username, password);
+    res.json({ result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+  res.json({ result: { id: req.user.userId, username: req.user.username } });
+});
+
+// ─── Storage Routes (protected) ─────────────────────────────────────────────
+app.use('/api/storage', storageRouter);
+
 // Health check
 app.get('/api/health', (_, res) => res.json({ status: 'ok', os: process.platform }));
 
+// 404 handler — return JSON, not HTML
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Global error handler — return JSON always
+app.use((err, _req, res, _next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Nexu server running on http://localhost:${PORT}`);
-  console.log('Tools available: system, files, browser, pdf, extra, whatsapp');
+  console.log('Tools available: system, files, browser, pdf, extra, whatsapp, auth');
+});
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Port ${PORT} is already in use!`);
+    console.error('   Kill the old process first:');
+    console.error('   PowerShell: Get-Process -Name node | Stop-Process -Force');
+    console.error('   Then restart the server.\n');
+  } else {
+    console.error('Server error:', err);
+  }
+  process.exit(1);
 });

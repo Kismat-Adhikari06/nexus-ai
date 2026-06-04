@@ -49,7 +49,8 @@ export async function extractFacts(
   _extracting = true;
 
   try {
-    const existingFacts = Object.entries(getRecentFacts(30))
+    const recentFacts = await getRecentFacts(30);
+    const existingFacts = Object.entries(recentFacts)
       .map(([k, v]) => `${k}: ${v.value}`).join('\n');
 
     const extractPrompt = `Existing facts (don't duplicate):
@@ -92,7 +93,7 @@ User message to analyze: "${userText}"`;
 
           if (key && value) {
             const status = confidence >= 75 ? 'saved' : 'pending';
-            saveFact(key, value, { category, confidence, source, status });
+            await saveFact(key, value, { category, confidence, source, status });
             console.log(`Extracted fact: ${key} = ${value} (confidence: ${confidence}, status: ${status})`);
           }
         } catch { /* skip invalid JSON */ }

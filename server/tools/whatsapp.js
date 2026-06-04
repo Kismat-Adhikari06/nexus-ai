@@ -689,6 +689,28 @@ async function reportContact(contactNameOrNumber) {
   }
 }
 
+// ─── Auto-restore session on startup ────────────────────────────────────────
+// If session files exist, try connecting silently so the user doesn't
+// have to re-scan the QR code after a server restart.
+function hasStoredSession() {
+  try {
+    if (!fs.existsSync(SESSION_DIR)) return false;
+    const files = fs.readdirSync(SESSION_DIR);
+    return files.some(f => f.endsWith('.json') || f.endsWith('.data'));
+  } catch { return false; }
+}
+
+// Auto-restore in background (non-blocking)
+if (hasStoredSession()) {
+  console.log('📱 Found saved WhatsApp session — restoring...');
+  connect().then(() => {
+    console.log('✅ WhatsApp session restored automatically');
+  }).catch((e) => {
+    console.log('⚠️ Could not restore WhatsApp session:', e.message);
+    console.log('   A tool call will trigger QR code if needed.');
+  });
+}
+
 module.exports = {
   listChats,
   getMessages,

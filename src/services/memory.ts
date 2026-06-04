@@ -1,52 +1,24 @@
-const FACTS_KEY = 'nexu:facts';
-const HISTORY_KEY = 'nexu:history';
+import { apiRequest } from './apiClient';
 
 export interface Fact {
   value: string;
   category: 'identity' | 'preferences' | 'relationships' | 'important_dates' | 'other';
   confidence: number;
-  source: 'user_chat' | 'whatsapp' | 'telegram' | 'direct_statement' | 'other';
+  source: 'user_chat' | 'whatsapp' | 'telegram' | 'direct_statement' | 'account' | 'other';
   timestamp: string;
   status: 'saved' | 'pending' | 'rejected';
 }
 
-// --- Facts (key-value memory) ---
+// ─── Facts ───────────────────────────────────────────────────────────────────
 
-function getFactsStore(): Record<string, Fact> {
+export async function getAllFacts(): Promise<Record<string, Fact>> {
   try {
-    const raw = localStorage.getItem(FACTS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    const values = Object.values(parsed);
-    if (values.length > 0 && typeof values[0] === 'string') {
-      // Migrate from old format (key → string) to new (key → Fact)
-      const migrated: Record<string, Fact> = {};
-      for (const [key, value] of Object.entries(parsed)) {
-        migrated[key] = {
-          value: value as string,
-          category: 'other',
-          confidence: 100,
-          source: 'direct_statement',
-          timestamp: new Date().toISOString(),
-          status: 'saved',
-        };
-      }
-      saveFactsStore(migrated);
-      return migrated;
-    }
-    return parsed as Record<string, Fact>;
-  } catch {
-    return {};
-  }
+    const data = await apiRequest<{ result: Record<string, Fact> }>('/api/storage/facts');
+    return data.result || {};
+  } catch { return {}; }
 }
 
-function saveFactsStore(facts: Record<string, Fact>) {
-  try {
-    localStorage.setItem(FACTS_KEY, JSON.stringify(facts));
-  } catch { /* ignore */ }
-}
-
-export function saveFact(
+export async function saveFact(
   key: string,
   value: string,
   options?: {
@@ -55,141 +27,113 @@ export function saveFact(
     source?: Fact['source'];
     status?: Fact['status'];
   }
-): string {
-  const facts = getFactsStore();
-  facts[key.toLowerCase()] = {
-    value,
-    category: options?.category || 'other',
-    confidence: options?.confidence ?? 100,
-    source: options?.source || 'direct_statement',
-    timestamp: new Date().toISOString(),
-    status: options?.status || 'saved',
-  };
-  saveFactsStore(facts);
-  return `Remembered: ${key} = ${value}`;
+): Promise<string> {
+  try {
+    const data = await apiRequest<{ result: string }>('/api/storage/facts/save', {
+      method: 'POST',
+      body: JSON.stringify({
+        key,
+        value,
+        category: options?.category || 'other',
+        confidence: options?.confidence ?? 100,
+        source: options?.source || 'direct_statement',
+        status: options?.status || 'saved',
+      }),
+    });
+    return data.result;
+  } catch { return 'Failed to save fact'; }
 }
 
-export function getFact(key: string): Fact | null {
-  const facts = getFactsStore();
+export async function getFact(key: string): Promise<Fact | null> {
+  const facts = await getAllFacts();
   return facts[key.toLowerCase()] || null;
 }
 
-export function getFactValue(key: string): string | null {
-  const fact = getFact(key);
+export async function getFactValue(key: string): Promise<string | null> {
+  const fact = await getFact(key);
   return fact ? fact.value : null;
 }
 
-export function getAllFacts(): Record<string, Fact> {
-  return getFactsStore();
+export async function deleteFact(key: string): Promise<string> {
+  try {
+    const data = await apiRequest<{ result: string }>(`/api/storage/facts/${encodeURIComponent(key.toLowerCase())}`, { method: 'DELETE' });
+    return data.result;
+  } catch { return 'Failed to delete fact'; }
 }
 
-export function deleteFact(key: string): string {
-  const facts = getFactsStore();
-  delete facts[key.toLowerCase()];
-  saveFactsStore(facts);
-  return `Forgot '${key}'`;
+export async function clearAllFacts(): Promise<void> {
+  try { await apiRequest('/api/storage/facts', { method: 'DELETE' }); } catch { /* ignore */ }
 }
 
-export function clearAllFacts(): void {
-  saveFactsStore({});
+export async function updateFact(key: string, updates: Partial<Omit<Fact, 'timestamp'>>): Promise<boolean> {
+  try {
+    await apiRequest(`/api/storage/facts/${encodeURIComponent(key.toLowerCase())}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+    return true;
+  } catch { return false; }
 }
 
-export function updateFact(key: string, updates: Partial<Omit<Fact, 'timestamp'>>): boolean {
-  const facts = getFactsStore();
-  const k = key.toLowerCase();
-  if (!facts[k]) return false;
-  facts[k] = { ...facts[k], ...updates, timestamp: new Date().toISOString() };
-  saveFactsStore(facts);
-  return true;
-}
-
-export function listFacts(): string {
-  const facts = getFactsStore();
-  const entries = Object.entries(facts);
+export async function listFacts(): Promise<string> {
+  const facts = await getAllFacts();
+  const entries = Object.entries(facts).filter(([, f]) => f.status === 'saved');
   if (entries.length === 0) return 'No saved facts yet.';
-  return entries
-    .filter(([, f]) => f.status === 'saved')
-    .map(([k, f]) => `${k}: ${f.value}`)
-    .join('\n');
+  return entries.map(([k, f]) => `${k}: ${f.value}`).join('\n');
 }
 
-export function getRecentFacts(n = 20): Record<string, Fact> {
-  const facts = getFactsStore();
-  const entries = Object.entries(facts)
-    .filter(([, f]) => f.status === 'saved')
-    .slice(0, n);
+export async function getRecentFacts(n = 20): Promise<Record<string, Fact>> {
+  const facts = await getAllFacts();
+  const entries = Object.entries(facts).filter(([, f]) => f.status === 'saved').slice(0, n);
   return Object.fromEntries(entries);
 }
 
-export function getPendingFacts(): [string, Fact][] {
-  const facts = getFactsStore();
+export async function getPendingFacts(): Promise<[string, Fact][]> {
+  const facts = await getAllFacts();
   return Object.entries(facts).filter(([, f]) => f.status === 'pending');
 }
 
-export function approveFact(key: string): boolean {
+export async function approveFact(key: string): Promise<boolean> {
   return updateFact(key, { status: 'saved' });
 }
 
-export function rejectFact(key: string): boolean {
+export async function rejectFact(key: string): Promise<boolean> {
   return updateFact(key, { status: 'rejected' });
 }
 
-// --- Conversation History ---
+// ─── Conversation History ───────────────────────────────────────────────────
 
-interface HistoryEntry {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-}
-
-function getHistory(): HistoryEntry[] {
+export async function addToHistory(role: 'user' | 'assistant', content: string): Promise<void> {
   try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(history: HistoryEntry[]) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    await apiRequest('/api/storage/history', {
+      method: 'POST',
+      body: JSON.stringify({ role, content }),
+    });
   } catch { /* ignore */ }
 }
 
-export function addToHistory(role: 'user' | 'assistant', content: string) {
-  const history = getHistory();
-  history.push({ id: crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2), role, content, timestamp: new Date().toISOString() });
-  if (history.length > 100) history.splice(0, history.length - 100);
-  saveHistory(history);
+export async function deleteHistoryEntry(id: string): Promise<void> {
+  try { await apiRequest(`/api/storage/history/${id}`, { method: 'DELETE' }); } catch { /* ignore */ }
 }
 
-export function deleteHistoryEntry(id: string): void {
-  const history = getHistory();
-  const idx = history.findIndex(e => e.id === id);
-  if (idx !== -1) {
-    history.splice(idx, 1);
-    saveHistory(history);
-  }
+export async function searchHistory(query: string, n = 3): Promise<{ id: string; role: string; content: string; timestamp: string }[]> {
+  try {
+    const data = await apiRequest<{ result: { id: string; role: string; content: string; timestamp: string }[] }>(
+      `/api/storage/history/search?q=${encodeURIComponent(query)}&limit=${n}`
+    );
+    return data.result || [];
+  } catch { return []; }
 }
 
-export function searchHistory(query: string, n = 3): HistoryEntry[] {
-  const history = getHistory();
-  const q = query.toLowerCase();
-  const results: HistoryEntry[] = [];
-  for (let i = history.length - 1; i >= 0 && results.length < n; i--) {
-    if (history[i].content.toLowerCase().includes(q)) {
-      results.push(history[i]);
-    }
-  }
-  return results;
+export async function getRecentHistory(n = 5): Promise<{ id: string; role: string; content: string; timestamp: string }[]> {
+  try {
+    const data = await apiRequest<{ result: { id: string; role: string; content: string; timestamp: string }[] }>(
+      `/api/storage/history?limit=${n}`
+    );
+    return data.result || [];
+  } catch { return []; }
 }
 
-export function getRecentHistory(n = 5): HistoryEntry[] {
-  const history = getHistory();
-  return history.slice(-n);
-}
-
-export function clearAllHistory(): void {
-  saveHistory([]);
+export async function clearAllHistory(): Promise<void> {
+  try { await apiRequest('/api/storage/history', { method: 'DELETE' }); } catch { /* ignore */ }
 }

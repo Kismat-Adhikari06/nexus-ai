@@ -6,19 +6,19 @@ import MemoryView from './components/MemoryView';
 import Settings from './components/Settings';
 import Connections from './components/Connections';
 import ChatInput from './components/ChatInput';
+import LoginPage from './components/LoginPage';
 import { useVoiceRecorder } from './hooks/useVoiceRecorder';
 import { getAIResponse, parseToolCalls, stripFiller } from './services/api';
-import { getRecentFacts, listFacts, saveFact, getFactValue, deleteFact, addToHistory, searchHistory, approveFact, rejectFact, getPendingFacts } from './services/memory';
+import * as memory from './services/memory';
 import { transcribeAudio } from './services/stt';
-
 import { extractFacts } from './services/facts';
+import { verifyToken, apiRequest } from './services/apiClient';
 import * as tools from './services/tools';
-import type { AppStatus, AppView, Message, Conversation } from './types';
+import type { AppStatus, AppView, Message, Conversation, User } from './types';
 
 const LS_KEYS = 'nexu:groqApiKey';
 const LS_GEMINI = 'nexu:geminiApiKey';
 const LS_PROVIDER = 'nexu:provider';
-const LS_CONVERSATIONS = 'nexu:conversations';
 
 function generateId() {
   return crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -57,20 +57,23 @@ const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | str
   clipboard_copy: (text) => tools.clipboardCopy(String(text)),
   screenshot: tools.screenshot,
   play_youtube: (query) => tools.playYoutube(String(query)),
-  remember: (key, value) => saveFact(String(key), String(value)),
-  recall: (key) => getFactValue(String(key)) || `I don't have anything saved for '${key}'`,
-  list_facts: () => listFacts(),
-  forget: (key) => deleteFact(String(key)),
-  approve_fact: (key) => {
-    const result = approveFact(String(key));
+  remember: async (key, value) => memory.saveFact(String(key), String(value)),
+  recall: async (key) => {
+    const val = await memory.getFactValue(String(key));
+    return val || `I don't have anything saved for '${key}'`;
+  },
+  list_facts: async () => memory.listFacts(),
+  forget: async (key) => memory.deleteFact(String(key)),
+  approve_fact: async (key) => {
+    const result = await memory.approveFact(String(key));
     return result ? `Approved fact '${key}'.` : `No pending fact found for '${key}'.`;
   },
-  reject_fact: (key) => {
-    const result = rejectFact(String(key));
+  reject_fact: async (key) => {
+    const result = await memory.rejectFact(String(key));
     return result ? `Rejected fact '${key}'.` : `No pending fact found for '${key}'.`;
   },
-  search_memory: (query) => {
-    const results = searchHistory(String(query), 3);
+  search_memory: async (query) => {
+    const results = await memory.searchHistory(String(query), 3);
     if (results.length === 0) return `No past conversations found matching '${query}'.`;
     return results.map(r => `[${r.timestamp}] ${r.role}: ${r.content.substring(0, 200)}`).join('\n');
   },
@@ -94,7 +97,6 @@ const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | str
     }
   },
   whatsapp_clear_session: () => tools.clearWhatsAppSession(),
-  // Chat management
   whatsapp_block: (contact) => tools.blockWhatsAppContact(String(contact)),
   whatsapp_unblock: (contact) => tools.unblockWhatsAppContact(String(contact)),
   whatsapp_delete_chat: (contact) => tools.deleteWhatsAppChat(String(contact)),
@@ -108,7 +110,6 @@ const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | str
   whatsapp_report: (contact) => tools.reportWhatsAppContact(String(contact)),
 };
 
-// Detailed mapping ensures correct arg order regardless of JSON key ordering
 const TOOL_PARAM_KEYS: Record<string, string[]> = {
   set_volume: ['level'],
   notify: ['title', 'message'],
@@ -135,7 +136,6 @@ const TOOL_PARAM_KEYS: Record<string, string[]> = {
   sleep: [],
   shutdown: [],
   hibernate: [],
-  // WhatsApp tools
   list_whatsapp_chats: ['limit'],
   get_whatsapp_messages: ['chat', 'limit'],
   send_whatsapp: ['to', 'message'],
@@ -144,7 +144,6 @@ const TOOL_PARAM_KEYS: Record<string, string[]> = {
   whatsapp_status: [],
   whatsapp_qr: [],
   whatsapp_clear_session: [],
-  // Chat management
   whatsapp_block: ['contact'],
   whatsapp_unblock: ['contact'],
   whatsapp_delete_chat: ['contact'],
@@ -162,12 +161,9 @@ async function executeToolCall(call: { action: string; [key: string]: unknown })
   const { action, ...params } = call;
   const fn = toolRegistry[action];
   if (!fn) return `Unknown tool: ${action}`;
-
   try {
-    // Map params by key order to ensure correct argument order
     const keys = TOOL_PARAM_KEYS[action] || Object.keys(params);
     const args = keys.map(k => params[k]);
-    console.log(`Executing tool: ${action}`, params);
     return await Promise.resolve(fn(...args));
   } catch (e) {
     return `Failed: ${e instanceof Error ? e.message : 'Tool execution error'}`;
@@ -175,14 +171,12 @@ async function executeToolCall(call: { action: string; [key: string]: unknown })
 }
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [status, setStatus] = useState<AppStatus>('idle');
   const [activeView, setActiveView] = useState<AppView>('chat');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(LS_CONVERSATIONS) || '[]');
-    } catch { return []; }
-  });
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const currentConvIdRef = useRef<string | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -191,6 +185,62 @@ export default function App() {
   const [geminiApiKey, setGeminiApiKey] = useState(() => loadSetting(LS_GEMINI, ''));
   const [provider, setProvider] = useState(() => loadSetting(LS_PROVIDER, 'auto'));
   const [hotkey, setHotkey] = useState('F4');
+
+  // ─── Auth ─────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    verifyToken().then(u => {
+      if (u) setUser(u);
+      setAuthLoading(false);
+    });
+  }, []);
+
+  const handleAuth = (u: User) => {
+    setUser(u);
+    loadConversations();
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setUser(null);
+    setConversations([]);
+    setActiveConversation(null);
+  };
+
+  // ─── Conversation persistence ─────────────────────────────────────────────
+
+  async function loadConversations() {
+    try {
+      const data = await apiRequest<{ result: Conversation[] }>('/api/storage/conversations');
+      setConversations(data.result || []);
+    } catch { /* server not ready yet */ }
+  }
+
+  useEffect(() => {
+    if (user) loadConversations();
+  }, [user]);
+
+  async function syncConversations(convs: Conversation[]) {
+    try {
+      for (const conv of convs) {
+        if (conv.id && conv.messages.length > 0) {
+          await apiRequest(`/api/storage/conversations/${conv.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ title: conv.title, messages: conv.messages }),
+          });
+        }
+      }
+    } catch { /* ignore sync errors */ }
+  }
+
+  // Save conversations to server when they change
+  const saveConversationsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!user || conversations.length === 0) return;
+    if (saveConversationsTimeoutRef.current) clearTimeout(saveConversationsTimeoutRef.current);
+    saveConversationsTimeoutRef.current = setTimeout(() => syncConversations(conversations), 2000);
+    return () => { if (saveConversationsTimeoutRef.current) clearTimeout(saveConversationsTimeoutRef.current); };
+  }, [conversations, user]);
 
   useEffect(() => { saveSetting(LS_KEYS, groqApiKey); }, [groqApiKey]);
   useEffect(() => { saveSetting(LS_GEMINI, geminiApiKey); }, [geminiApiKey]);
@@ -205,7 +255,6 @@ export default function App() {
     }
   }, [status]);
 
-  // Generate a title from the first user message
   const generateTitle = useCallback((msgs: Message[]): string => {
     const firstUserMsg = msgs.find(m => m.role === 'user');
     if (!firstUserMsg) return 'New conversation';
@@ -232,22 +281,28 @@ export default function App() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }]);
+      // Save new conversation to server
+      if (user) {
+        apiRequest('/api/storage/conversations', {
+          method: 'POST',
+          body: JSON.stringify({ id, title: generateTitle(messages), messages }),
+        }).catch(() => {});
+      }
     }
-  }, [messages, generateTitle]);
-
-  // Persist conversations to localStorage
-  useEffect(() => {
-    try { localStorage.setItem(LS_CONVERSATIONS, JSON.stringify(conversations)); } catch { /* ignore */ }
-  }, [conversations]);
+  }, [messages, generateTitle, user]);
 
   const processAIResponse = useCallback(async (userText: string, currentMessages: Message[]) => {
-    // Build context from memory
-    const facts = Object.entries(getRecentFacts(20))
+    const recentFacts = await memory.getRecentFacts(20);
+    let facts = Object.entries(recentFacts)
       .map(([k, v]) => `  ${k}: ${v.value}`).join('\n');
-    const history = searchHistory(userText, 3)
+    // Always include the account username so Nexu knows how to address the user
+    if (user && !recentFacts['name']) {
+      facts = `  name: ${user.username}\n${facts}`;
+    }
+    const histEntries = await memory.searchHistory(userText, 3);
+    const history = histEntries
       .map(r => `${r.role === 'user' ? 'User' : 'Nexu'}: ${r.content.substring(0, 200)}`).join('\n');
 
-    // Call AI
     const rawResponse = await getAIResponse(
       currentMessages,
       { groqApiKey, geminiApiKey, provider: provider === 'auto' ? 'auto' : provider },
@@ -255,17 +310,13 @@ export default function App() {
       history
     );
 
-    // Parse tool calls
     const toolCalls = parseToolCalls(rawResponse);
     const text = rawResponse.split('---TOOL---')[0].trim();
 
-    // Execute tools if any
-    let toolResults: string[] = [];
     if (toolCalls.length > 0) {
       const toolMsgs: Message[] = [];
       for (const call of toolCalls) {
         const result = await executeToolCall(call);
-        toolResults.push(result);
         toolMsgs.push({
           id: generateId(),
           role: 'tool',
@@ -274,12 +325,11 @@ export default function App() {
           toolName: call.action,
         });
       }
-      // Add tool results as messages
-      return { text: text || toolResults.join('. '), toolMessages: toolMsgs, toolCalls };
+      return { text: text || toolMsgs.map(m => m.content).join('. '), toolMessages: toolMsgs, toolCalls };
     }
 
     return { text, toolMessages: [] as Message[], toolCalls: [] as { action: string; [key: string]: unknown }[] };
-  }, [groqApiKey, geminiApiKey, provider]);
+  }, [groqApiKey, geminiApiKey, provider, user]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     const userMsg: Message = {
@@ -288,10 +338,9 @@ export default function App() {
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setStatus('processing');
-    addToHistory('user', text);
+    await memory.addToHistory('user', text);
 
     try {
-      // Strip filler so 'search recipes for me thanks' becomes clean intent
       const cleanText = stripFiller(text);
       const { text: responseText, toolMessages, toolCalls } = await processAIResponse(cleanText, updatedMessages);
 
@@ -299,10 +348,8 @@ export default function App() {
       const allNew: Message[] = [];
 
       if (toolCalls.length > 0) {
-        // Add tool result messages
         allNew.push(...toolMessages);
 
-        // Second AI call: send tool results back for a proper response
         const toolResultsText = toolMessages.map(m =>
           `[${m.toolName}]: ${m.content}`
         ).join('\n');
@@ -312,9 +359,14 @@ export default function App() {
         ];
 
         try {
-          const facts = Object.entries(getRecentFacts(20))
+          const recentFacts = await memory.getRecentFacts(20);
+          let facts = Object.entries(recentFacts)
             .map(([k, v]) => `${k}: ${v.value}`).join('\n');
-          const history = searchHistory(text, 3)
+          if (user && !recentFacts['name']) {
+            facts = `name: ${user.username}\n${facts}`;
+          }
+          const histEntries = await memory.searchHistory(text, 3);
+          const history = histEntries
             .map(r => `${r.role === 'user' ? 'User' : 'Nexu'}: ${r.content.substring(0, 200)}`).join('\n');
 
           finalContent = await getAIResponse(
@@ -323,7 +375,6 @@ export default function App() {
             facts,
             history
           );
-          // Strip any stray tool calls from the follow-up response
           finalContent = finalContent.split('---TOOL---')[0].trim();
         } catch {
           finalContent = responseText || `Done: ${toolCalls.map(t => t.action).join(', ')}`;
@@ -341,10 +392,8 @@ export default function App() {
       setMessages(prev => [...prev, ...allNew]);
       setStatus('idle');
 
-      // Save to history
-      addToHistory('assistant', finalContent);
+      await memory.addToHistory('assistant', finalContent);
 
-      // Extract facts automatically (async, non-blocking)
       extractFacts(text, finalContent, groqApiKey);
     } catch (err) {
       const errorMsg: Message = {
@@ -356,9 +405,8 @@ export default function App() {
       setMessages(prev => [...prev, errorMsg]);
       setStatus('error');
     }
-  }, [messages, processAIResponse, groqApiKey]);
+  }, [messages, processAIResponse, groqApiKey, user]);
 
-  // STT: transcribe recorded audio and send as message (defined AFTER handleSendMessage)
   const handleRecordingComplete = useCallback(async (blob: Blob) => {
     const apiKey = groqApiKey;
     if (!apiKey) {
@@ -384,7 +432,6 @@ export default function App() {
     }
   }, [groqApiKey, handleSendMessage]);
 
-  // Wire recording completion to STT + send
   useEffect(() => {
     onRecordingComplete((blob) => {
       handleRecordingComplete(blob);
@@ -415,19 +462,33 @@ export default function App() {
     }
   }, [conversations]);
 
-  const handleDeleteConversation = useCallback((id: string) => {
+  const handleDeleteConversation = useCallback(async (id: string) => {
     setConversations(prev => prev.filter(c => c.id !== id));
     if (activeConversation === id) {
       setMessages([]);
       setActiveConversation(null);
       currentConvIdRef.current = null;
     }
+    try { await apiRequest(`/api/storage/conversations/${id}`, { method: 'DELETE' }); } catch { /* ignore */ }
   }, [activeConversation]);
 
-  // When active conversation changes, set the ref
   useEffect(() => {
     currentConvIdRef.current = activeConversation;
   }, [activeConversation]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  if (authLoading) {
+    return (
+      <div className="h-screen bg-nexu-bg flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-nexu-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage onAuth={handleAuth} />;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-nexu-bg">
@@ -441,6 +502,7 @@ export default function App() {
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
           onDeleteConversation={handleDeleteConversation}
+          onLogout={handleLogout}
         />
         {activeView === 'chat' ? (
           <div className="flex-1 flex flex-col">

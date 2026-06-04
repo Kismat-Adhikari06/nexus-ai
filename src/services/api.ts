@@ -57,6 +57,10 @@ Memory Tools:
     {"action": "list_facts"}
   forget — Delete a saved fact
     {"action": "forget", "key": "favorite_color"}
+  approve_fact — Approve a pending fact (low-confidence fact that needs user confirmation)
+    {"action": "approve_fact", "key": "name"}
+  reject_fact — Reject a pending fact
+    {"action": "reject_fact", "key": "name"}
   search_memory — Search past conversations
     {"action": "search_memory", "query": "project name"}
 

@@ -270,6 +270,13 @@ export default function App() {
       setConversations(prev => prev.map(c =>
         c.id === convId ? { ...c, messages, title: generateTitle(messages), updatedAt: Date.now() } : c
       ));
+      // Persist immediately so AI replies survive page refresh
+      if (user && messages.length > 0) {
+        apiRequest(`/api/storage/conversations/${convId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ title: generateTitle(messages), messages }),
+        }).catch(() => {});
+      }
     } else {
       const id = generateId();
       currentConvIdRef.current = id;

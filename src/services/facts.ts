@@ -7,13 +7,17 @@ let _extracting = false;
 
 // Skip extraction for messages that can't possibly contain user facts
 const FIRST_PERSON_PATTERN = /\b(I|me|my|mine|I'm|I've|I'd|I'll)\b/i;
+const QUESTION_PATTERN = /\?\s*$|^(what|why|how|when|where|who|which|whose|can|could|will|would|shall|should|do|does|did|is|are|was|were|have|has|had)\b/i;
 
 function shouldSkip(userText: string): boolean {
-  const words = userText.trim().split(/\s+/);
+  const trimmed = userText.trim();
+  const words = trimmed.split(/\s+/);
   // Must have at least 3 words
   if (words.length < 3) return true;
   // Must contain first-person pronoun
-  if (!FIRST_PERSON_PATTERN.test(userText)) return true;
+  if (!FIRST_PERSON_PATTERN.test(trimmed)) return true;
+  // Skip questions — user is asking, not stating a fact
+  if (QUESTION_PATTERN.test(trimmed)) return true;
   return false;
 }
 

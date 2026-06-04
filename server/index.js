@@ -34,9 +34,51 @@ app.post('/api/files/find', (req, res) => res.json({ result: files.findFile(req.
 app.post('/api/files/info', (req, res) => res.json({ result: files.getFileInfo(req.body.path) }));
 app.post('/api/files/list', (req, res) => res.json({ result: files.listDirectory(req.body.path) }));
 
-// Browser tools
-app.post('/api/browser/open', (req, res) => res.json({ result: browser.openUrl(req.body.url) }));
-app.post('/api/browser/search', (req, res) => res.json({ result: browser.searchWeb(req.body.query) }));
+// Browser tools (Playwright — persistent headless browser)
+app.post('/api/browser/open', async (req, res) => {
+  try { res.json({ result: await browser.openUrl(req.body.url) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/search', async (req, res) => {
+  try { res.json({ result: await browser.searchWeb(req.body.query) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/navigate', async (req, res) => {
+  try { res.json({ result: await browser.navigate(req.body.url) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/click', async (req, res) => {
+  try { res.json({ result: await browser.clickElement(req.body.selector) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/type', async (req, res) => {
+  try { res.json({ result: await browser.typeInto(req.body.selector, req.body.text) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/screenshot', async (req, res) => {
+  try { res.json({ result: await browser.screenshot() }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/getText', async (req, res) => {
+  try { res.json({ result: await browser.getPageText() }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/scroll', async (req, res) => {
+  try { res.json({ result: await browser.scrollPage(req.body.direction, req.body.amount) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/evaluate', async (req, res) => {
+  try { res.json({ result: await browser.evaluateJS(req.body.code) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/pageInfo', async (req, res) => {
+  try { res.json({ result: await browser.getPageInfo() }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/waitFor', async (req, res) => {
+  try { res.json({ result: await browser.waitForElement(req.body.selector, req.body.timeout) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
 
 // PDF tools
 app.post('/api/files/read-pdf', (req, res) => res.json({ result: pdf.readPdf(req.body.path) }));

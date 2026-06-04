@@ -42,11 +42,29 @@ File Tools:
   read_pdf — Extract text from a PDF file
     {"action": "read_pdf", "path": "C:/path/to/document.pdf"}
 
-Browser Tools:
-  open_url — Open any URL in the browser. Use for YouTube searches too:
-    {"action": "open_url", "url": "https://www.youtube.com/results?search_query=the+neighborhood+wdywfm"}
-  search_web — Search Google from the browser
+Browser Tools (Playwright — persistent headless browser):
+  open_url — Navigate to a URL and return page content
+    {"action": "open_url", "url": "https://example.com"}
+  search_web — Search Google and return results
     {"action": "search_web", "query": "weather today"}
+  browser_navigate — Navigate to a URL
+    {"action": "browser_navigate", "url": "https://example.com"}
+  browser_click — Click an element on the page
+    {"action": "browser_click", "selector": "#button-id"}
+  browser_type — Type text into an input field
+    {"action": "browser_type", "selector": "#search-input", "text": "hello world"}
+  browser_screenshot — Take a screenshot of the current page
+    {"action": "browser_screenshot"}
+  browser_get_text — Get all visible text from the current page
+    {"action": "browser_get_text"}
+  browser_scroll — Scroll the page in a direction (up/down/left/right)
+    {"action": "browser_scroll", "direction": "down", "amount": 300}
+  browser_page_info — Get the current page title and URL
+    {"action": "browser_page_info"}
+  browser_evaluate — Run JavaScript in the browser page
+    {"action": "browser_evaluate", "code": "document.title"}
+  browser_wait_for — Wait for an element to appear on the page
+    {"action": "browser_wait_for", "selector": ".result", "timeout": 5000}
 
 Memory Tools:
   remember — Save a fact about the user

@@ -10,7 +10,7 @@ import { useVoiceRecorder } from './hooks/useVoiceRecorder';
 import { getAIResponse, parseToolCalls, stripFiller } from './services/api';
 import { getRecentFacts, listFacts, saveFact, getFactValue, deleteFact, addToHistory, searchHistory, approveFact, rejectFact, getPendingFacts } from './services/memory';
 import { transcribeAudio } from './services/stt';
-import { speak, isSpeaking, stopSpeaking } from './services/tts';
+
 import { extractFacts } from './services/facts';
 import * as tools from './services/tools';
 import type { AppStatus, AppView, Message, Conversation } from './types';
@@ -94,6 +94,18 @@ const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | str
     }
   },
   whatsapp_clear_session: () => tools.clearWhatsAppSession(),
+  // Chat management
+  whatsapp_block: (contact) => tools.blockWhatsAppContact(String(contact)),
+  whatsapp_unblock: (contact) => tools.unblockWhatsAppContact(String(contact)),
+  whatsapp_delete_chat: (contact) => tools.deleteWhatsAppChat(String(contact)),
+  whatsapp_archive: (contact) => tools.archiveWhatsAppChat(String(contact)),
+  whatsapp_unarchive: (contact) => tools.unarchiveWhatsAppChat(String(contact)),
+  whatsapp_mute: (contact, duration) => tools.muteWhatsAppChat(String(contact), duration ? String(duration) : undefined),
+  whatsapp_unmute: (contact) => tools.unmuteWhatsAppChat(String(contact)),
+  whatsapp_pin: (contact) => tools.pinWhatsAppChat(String(contact)),
+  whatsapp_unpin: (contact) => tools.unpinWhatsAppChat(String(contact)),
+  whatsapp_mark_read: (contact) => tools.markWhatsAppRead(String(contact)),
+  whatsapp_report: (contact) => tools.reportWhatsAppContact(String(contact)),
 };
 
 // Detailed mapping ensures correct arg order regardless of JSON key ordering
@@ -132,6 +144,18 @@ const TOOL_PARAM_KEYS: Record<string, string[]> = {
   whatsapp_status: [],
   whatsapp_qr: [],
   whatsapp_clear_session: [],
+  // Chat management
+  whatsapp_block: ['contact'],
+  whatsapp_unblock: ['contact'],
+  whatsapp_delete_chat: ['contact'],
+  whatsapp_archive: ['contact'],
+  whatsapp_unarchive: ['contact'],
+  whatsapp_mute: ['contact', 'duration'],
+  whatsapp_unmute: ['contact'],
+  whatsapp_pin: ['contact'],
+  whatsapp_unpin: ['contact'],
+  whatsapp_mark_read: ['contact'],
+  whatsapp_report: ['contact'],
 };
 
 async function executeToolCall(call: { action: string; [key: string]: unknown }): Promise<string> {
@@ -167,8 +191,6 @@ export default function App() {
   const [geminiApiKey, setGeminiApiKey] = useState(() => loadSetting(LS_GEMINI, ''));
   const [provider, setProvider] = useState(() => loadSetting(LS_PROVIDER, 'auto'));
   const [hotkey, setHotkey] = useState('F4');
-  const [voiceInput, setVoiceInput] = useState(true);
-  const [voiceOutput, setVoiceOutput] = useState(true);
 
   useEffect(() => { saveSetting(LS_KEYS, groqApiKey); }, [groqApiKey]);
   useEffect(() => { saveSetting(LS_GEMINI, geminiApiKey); }, [geminiApiKey]);
@@ -322,11 +344,6 @@ export default function App() {
       // Save to history
       addToHistory('assistant', finalContent);
 
-      // TTS: speak response if voice output is enabled
-      if (voiceOutput && finalContent) {
-        speak(finalContent);
-      }
-
       // Extract facts automatically (async, non-blocking)
       extractFacts(text, finalContent, groqApiKey);
     } catch (err) {
@@ -339,7 +356,7 @@ export default function App() {
       setMessages(prev => [...prev, errorMsg]);
       setStatus('error');
     }
-  }, [messages, processAIResponse, voiceOutput, groqApiKey]);
+  }, [messages, processAIResponse, groqApiKey]);
 
   // STT: transcribe recorded audio and send as message (defined AFTER handleSendMessage)
   const handleRecordingComplete = useCallback(async (blob: Blob) => {
@@ -444,14 +461,10 @@ export default function App() {
             geminiApiKey={geminiApiKey}
             provider={provider}
             hotkey={hotkey}
-            voiceInput={voiceInput}
-            voiceOutput={voiceOutput}
             onGroqKeyChange={setGroqApiKey}
             onGeminiKeyChange={setGeminiApiKey}
             onProviderChange={setProvider}
             onHotkeyChange={setHotkey}
-            onVoiceInputChange={setVoiceInput}
-            onVoiceOutputChange={setVoiceOutput}
           />
         ) : (
           <MemoryView />

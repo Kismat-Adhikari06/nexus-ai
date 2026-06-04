@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Brain, Bookmark, Trash2, Search, Clock, MessageSquare, Check, X, Edit2, AlertCircle, Plus } from 'lucide-react';
+import { Brain, Bookmark, Trash2, Search, Check, X, Edit2, AlertCircle, Plus } from 'lucide-react';
 import type { Fact } from '../services/memory';
-import { getAllFacts, deleteFact, getRecentHistory, getPendingFacts, approveFact, rejectFact, updateFact, saveFact, clearAllFacts, clearAllHistory, deleteHistoryEntry } from '../services/memory';
+import { getAllFacts, deleteFact, getPendingFacts, approveFact, rejectFact, updateFact, saveFact, clearAllFacts, clearAllHistory } from '../services/memory';
 
 const CATEGORY_COLORS: Record<string, string> = {
   identity: 'bg-nexu-accent-blue/10 text-nexu-accent-blue',
@@ -106,20 +106,17 @@ function FactCard({ factKey, fact, onDelete, onRefresh }: { factKey: string; fac
 export default function MemoryView() {
   const [facts, setFacts] = useState<Record<string, Fact>>({});
   const [pending, setPending] = useState<[string, Fact][]>([]);
-  const [history, setHistory] = useState<{ id: string; role: string; content: string; timestamp: string }[]>([]);
-  const [activeTab, setActiveTab] = useState<'facts' | 'pending' | 'history'>('facts');
+  const [activeTab, setActiveTab] = useState<'facts' | 'pending'>('facts');
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
   const [newCategory, setNewCategory] = useState<Fact['category']>('other');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showHistoryDeleteConfirm, setShowHistoryDeleteConfirm] = useState(false);
 
   const refresh = () => {
     setFacts(getAllFacts());
     setPending(getPendingFacts());
-    setHistory(getRecentHistory(50));
   };
 
   useEffect(() => { refresh(); }, []);
@@ -131,6 +128,8 @@ export default function MemoryView() {
 
   const handleDeleteAll = () => {
     clearAllFacts();
+    clearAllHistory();
+    try { localStorage.removeItem('nexu:conversations'); } catch { /* ignore */ }
     setShowDeleteConfirm(false);
     refresh();
   };
@@ -142,17 +141,6 @@ export default function MemoryView() {
 
   const handleReject = (key: string) => {
     rejectFact(key);
-    refresh();
-  };
-
-  const handleDeleteHistoryEntry = (id: string) => {
-    deleteHistoryEntry(id);
-    refresh();
-  };
-
-  const handleDeleteAllHistory = () => {
-    clearAllHistory();
-    setShowHistoryDeleteConfirm(false);
     refresh();
   };
 
@@ -177,10 +165,6 @@ export default function MemoryView() {
     k.toLowerCase().includes(searchTerm.toLowerCase()) ||
     v.value.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const filteredHistory = history.filter(h =>
-    h.content.toLowerCase().includes(searchTerm.toLowerCase())
-  ).reverse();
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -280,17 +264,6 @@ export default function MemoryView() {
                 </span>
               )}
             </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === 'history'
-                ? 'bg-nexu-primary-dim text-nexu-primary-hover'
-                : 'text-nexu-text-dim hover:text-nexu-text'
-            }`}
-          >
-            <MessageSquare size={16} />
-            History ({history.length})
-          </button>
         </div>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -414,82 +387,7 @@ export default function MemoryView() {
           </div>
         )}
 
-        {activeTab === 'history' && (
-          <div className="space-y-2">
-            {filteredHistory.length === 0 ? (
-              <div className="text-center py-12">
-                <Clock size={48} className="mx-auto text-nexu-text-muted mb-4" />
-                <h3 className="text-lg font-medium text-nexu-text mb-1">No conversation history yet</h3>
-                <p className="text-sm text-nexu-text-dim">
-                  Start chatting with Nexu and your conversation history will show here.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => setShowHistoryDeleteConfirm(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border bg-nexu-surface-2 border-nexu-border text-nexu-text-dim hover:text-nexu-accent-red hover:border-nexu-accent-red/30 transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={14} />
-                    Delete All
-                  </button>
-                </div>
-                {showHistoryDeleteConfirm && (
-                  <div className="p-4 rounded-lg border border-nexu-accent-red/30 bg-nexu-accent-red/5 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle size={16} className="text-nexu-accent-red" />
-                      <p className="text-sm font-medium text-nexu-text">Delete all conversation history?</p>
-                    </div>
-                    <p className="text-xs text-nexu-text-dim">This cannot be undone.</p>
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setShowHistoryDeleteConfirm(false)}
-                        className="px-3 py-1.5 rounded-lg text-sm text-nexu-text-dim hover:text-nexu-text bg-nexu-bg border border-nexu-border cursor-pointer transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleDeleteAllHistory}
-                        className="px-3 py-1.5 rounded-lg text-sm text-white bg-nexu-accent-red hover:bg-nexu-accent-red/80 cursor-pointer transition-colors"
-                      >
-                        Delete All
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {filteredHistory.map((entry, i) => (
-                  <div key={entry.id || i} className={`group p-3 rounded-lg border transition-colors relative hover:border-nexu-primary/30 ${
-                    entry.role === 'user'
-                      ? 'bg-nexu-surface-2 border-nexu-border'
-                      : 'bg-nexu-surface-2/50 border-nexu-border/50'
-                  }`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                        entry.role === 'user'
-                          ? 'bg-nexu-primary-dim text-nexu-primary-hover'
-                          : 'bg-nexu-accent-green/10 text-nexu-accent-green'
-                      }`}>
-                        {entry.role === 'user' ? 'You' : 'Nexu'}
-                      </span>
-                      <span className="text-[10px] text-nexu-text-muted">
-                        {new Date(entry.timestamp).toLocaleString()}
-                      </span>
-                    </div>
-                    <p className="text-sm text-nexu-text-dim">{entry.content.substring(0, 300)}</p>
-                    <button
-                      onClick={() => handleDeleteHistoryEntry(entry.id)}
-                      className="absolute top-2 right-2 p-1 rounded text-nexu-text-muted hover:text-nexu-accent-red hover:bg-nexu-accent-red/10 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                      title="Delete entry"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
+
       </div>
     </div>
   );

@@ -82,6 +82,29 @@ WhatsApp Tools (Baileys — requires QR scan on first use):
   whatsapp_clear_session — Clear WhatsApp session and auth (re-scan QR needed)
     {"action": "whatsapp_clear_session"}
 
+  whatsapp_block — Block a WhatsApp contact (stops them from messaging you)
+    {"action": "whatsapp_block", "contact": "contact name or number"}
+  whatsapp_unblock — Unblock a previously blocked WhatsApp contact
+    {"action": "whatsapp_unblock", "contact": "contact name or number"}
+  whatsapp_delete_chat — Delete an entire WhatsApp conversation
+    {"action": "whatsapp_delete_chat", "contact": "contact name or number"}
+  whatsapp_archive — Archive a WhatsApp chat (hides it from main inbox)
+    {"action": "whatsapp_archive", "contact": "contact name or number"}
+  whatsapp_unarchive — Unarchive a WhatsApp chat (brings it back to main inbox)
+    {"action": "whatsapp_unarchive", "contact": "contact name or number"}
+  whatsapp_mute — Mute a WhatsApp contact (duration: '8hours', '1week', or 'always')
+    {"action": "whatsapp_mute", "contact": "contact name or number", "duration": "always"}
+  whatsapp_unmute — Unmute a previously muted WhatsApp contact
+    {"action": "whatsapp_unmute", "contact": "contact name or number"}
+  whatsapp_pin — Pin a WhatsApp chat to the top of your chat list
+    {"action": "whatsapp_pin", "contact": "contact name or number"}
+  whatsapp_unpin — Unpin a previously pinned WhatsApp chat
+    {"action": "whatsapp_unpin", "contact": "contact name or number"}
+  whatsapp_mark_read — Mark a WhatsApp chat as read
+    {"action": "whatsapp_mark_read", "contact": "contact name or number"}
+  whatsapp_report — Report and block a WhatsApp contact (blocks via API + gives manual report instructions)
+    {"action": "whatsapp_report", "contact": "contact name or number"}
+
 **QR Code Flow**: On first use, call a WhatsApp tool to trigger connection, then get the QR link by calling whatsapp_qr or opening http://localhost:3001/api/whatsapp/qr in your browser. Scan it with your phone. If you already scanned before but it's not working, say "Clear my WhatsApp session" and try again.
 
 Extra Tools:
@@ -210,10 +233,14 @@ export async function getAIResponse(
   facts: string,
   history: string
 ): Promise<string> {
-  const conversation = messages.map((m) => ({
-    role: m.role === 'user' ? 'user' : 'assistant',
-    content: m.content,
-  }));
+  // Filter out tool messages — they're already reflected in the assistant's response
+  // and including them as 'assistant' confuses the AI into repeating tool calls
+  const conversation = messages
+    .filter(m => m.role !== 'tool')
+    .map((m) => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content,
+    }));
 
   // Render system prompt with context
   const systemPrompt = SYSTEM_PROMPT

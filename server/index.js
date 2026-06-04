@@ -206,8 +206,43 @@ app.get('/api/whatsapp/qr', (_, res) => {
     <p>${pageDesc}</p>
     <div class="badge" style="background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">${badgeText}</div>
     ${content}
-    <button class="btn" style="background: #7c3aed;" onclick="location.reload()">🔄 Refresh</button>
+    <div style="margin-top: 12px;">
+      <button class="btn" style="background: #7c3aed;" onclick="location.reload()">🔄 Refresh</button>
+    </div>
+    <p id="autoStatus" style="margin-top: 16px; color: #6b6b7e; font-size: 12px;"></p>
   </div>
+  <script>
+    // Auto-refresh on connection status change — poll every 2s
+    (function poll() {
+      fetch('/api/whatsapp/qr-data')
+        .then(r => r.json())
+        .then(d => {
+          const r = d && d.result ? d.result : d;
+          const wasConnected = ${isConnected};
+          const isNowConnected = r && r.connected;
+          const isNowConnecting = r && r.connecting;
+          const hasQR = r && r.qrImage;
+
+          document.getElementById('autoStatus').textContent =
+            isNowConnected ? '✅ Connected — auto-detected' :
+            isNowConnecting ? '⏳ Establishing connection...' :
+            hasQR ? '📱 Waiting for scan...' :
+            '❌ Not connected';
+
+          if (!wasConnected && isNowConnected) {
+            setTimeout(function(){ location.reload(); }, 800);
+            return;
+          }
+          // Also refresh when QR first appears while connecting
+          if (!${hasQR ? 'true' : 'false'} && hasQR && !isNowConnected) {
+            setTimeout(function(){ location.reload(); }, 800);
+            return;
+          }
+          setTimeout(poll, 2000);
+        })
+        .catch(function(){ setTimeout(poll, 2000); });
+    })();
+  </script>
 </body>
 </html>`);
 });
@@ -217,6 +252,52 @@ app.get('/api/whatsapp/qr-data', (_, res) => res.json({ result: whatsapp.getQR()
 
 // WhatsApp clear session (logs out and deletes saved auth)
 app.post('/api/whatsapp/clear', (_, res) => res.json({ result: whatsapp.clearSession() }));
+
+// WhatsApp chat management
+app.post('/api/whatsapp/block', async (req, res) => {
+  try { res.json({ result: await whatsapp.blockContact(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/unblock', async (req, res) => {
+  try { res.json({ result: await whatsapp.unblockContact(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/delete-chat', async (req, res) => {
+  try { res.json({ result: await whatsapp.deleteChat(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/archive', async (req, res) => {
+  try { res.json({ result: await whatsapp.archiveChat(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/unarchive', async (req, res) => {
+  try { res.json({ result: await whatsapp.unarchiveChat(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/mute', async (req, res) => {
+  try { res.json({ result: await whatsapp.muteChat(req.body.contact, req.body.duration || 'always') }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/unmute', async (req, res) => {
+  try { res.json({ result: await whatsapp.unmuteChat(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/pin', async (req, res) => {
+  try { res.json({ result: await whatsapp.pinChat(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/unpin', async (req, res) => {
+  try { res.json({ result: await whatsapp.unpinChat(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/mark-read', async (req, res) => {
+  try { res.json({ result: await whatsapp.markAsRead(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/whatsapp/report', async (req, res) => {
+  try { res.json({ result: await whatsapp.reportContact(req.body.contact) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
 
 // WhatsApp connect (triggers connection + QR code generation)
 app.post('/api/whatsapp/connect', async (_, res) => {

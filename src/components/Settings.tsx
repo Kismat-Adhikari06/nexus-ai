@@ -1,4 +1,4 @@
-import { Key, Mic, Volume2, Keyboard } from 'lucide-react';
+import { Key, Keyboard, Cpu } from 'lucide-react';
 
 const HOTKEY_OPTIONS = ['Caps Lock', 'F4', 'F3', 'M', 'Space'];
 const PROVIDER_OPTIONS = ['auto', 'groq', 'gemini'] as const;
@@ -8,40 +8,16 @@ interface SettingsProps {
   geminiApiKey: string;
   provider: string;
   hotkey: string;
-  voiceInput: boolean;
-  voiceOutput: boolean;
   onGroqKeyChange: (key: string) => void;
   onGeminiKeyChange: (key: string) => void;
   onProviderChange: (provider: string) => void;
   onHotkeyChange: (hotkey: string) => void;
-  onVoiceInputChange: (enabled: boolean) => void;
-  onVoiceOutputChange: (enabled: boolean) => void;
 }
 
 export default function Settings({
   groqApiKey, geminiApiKey, provider, hotkey,
-  voiceInput, voiceOutput,
   onGroqKeyChange, onGeminiKeyChange, onProviderChange, onHotkeyChange,
-  onVoiceInputChange, onVoiceOutputChange,
 }: SettingsProps) {
-
-  const Toggle = ({ enabled, onChange }: { enabled: boolean; onChange: () => void }) => (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      onClick={onChange}
-      className={`w-10 h-6 rounded-full relative transition-colors cursor-pointer ${
-        enabled ? 'bg-nexu-primary' : 'bg-nexu-border'
-      }`}
-    >
-      <div
-        className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-          enabled ? 'right-1' : 'left-1'
-        }`}
-      />
-    </button>
-  );
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -84,7 +60,7 @@ export default function Settings({
         {/* AI Provider */}
         <section className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium text-nexu-text">
-            <Mic size={16} className="text-nexu-primary-hover" />
+            <Cpu size={16} className="text-nexu-primary-hover" />
             AI Provider
           </div>
           <div className="flex gap-2">
@@ -124,36 +100,6 @@ export default function Settings({
                 {key}
               </button>
             ))}
-          </div>
-        </section>
-
-        {/* Voice Toggles */}
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-nexu-text">
-            <Volume2 size={16} className="text-nexu-primary-hover" />
-            Voice
-          </div>
-          <div className="space-y-3">
-            <label className="flex items-center justify-between p-3 rounded-lg bg-nexu-surface-2 border border-nexu-border cursor-pointer">
-              <div className="flex items-center gap-3">
-                <span className="text-nexu-text-dim"><Mic size={14} /></span>
-                <div>
-                  <p className="text-sm font-medium text-nexu-text">Voice Input</p>
-                  <p className="text-xs text-nexu-text-muted">Enable microphone for speech-to-text</p>
-                </div>
-              </div>
-              <Toggle enabled={voiceInput} onChange={() => onVoiceInputChange(!voiceInput)} />
-            </label>
-            <label className="flex items-center justify-between p-3 rounded-lg bg-nexu-surface-2 border border-nexu-border cursor-pointer">
-              <div className="flex items-center gap-3">
-                <span className="text-nexu-text-dim"><Volume2 size={14} /></span>
-                <div>
-                  <p className="text-sm font-medium text-nexu-text">Voice Output</p>
-                  <p className="text-xs text-nexu-text-muted">Enable text-to-speech for AI responses</p>
-                </div>
-              </div>
-              <Toggle enabled={voiceOutput} onChange={() => onVoiceOutputChange(!voiceOutput)} />
-            </label>
           </div>
         </section>
 

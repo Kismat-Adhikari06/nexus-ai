@@ -72,3 +72,14 @@ export function getUnreadWhatsApp() { return callBackend('/api/whatsapp/unread')
 export function whatsAppStatus() { return callBackend('/api/whatsapp/status'); }
 export function getWhatsAppQR() { return callBackend('/api/whatsapp/qr-data'); }
 export function clearWhatsAppSession() { return callBackend('/api/whatsapp/clear'); }
+export function blockWhatsAppContact(contact: string) { return callBackend('/api/whatsapp/block', { contact }); }
+export function unblockWhatsAppContact(contact: string) { return callBackend('/api/whatsapp/unblock', { contact }); }
+export function deleteWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/delete-chat', { contact }); }
+export function archiveWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/archive', { contact }); }
+export function unarchiveWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/unarchive', { contact }); }
+export function muteWhatsAppChat(contact: string, duration?: string) { return callBackend('/api/whatsapp/mute', { contact, duration: duration || 'always' }); }
+export function unmuteWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/unmute', { contact }); }
+export function pinWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/pin', { contact }); }
+export function unpinWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/unpin', { contact }); }
+export function markWhatsAppRead(contact: string) { return callBackend('/api/whatsapp/mark-read', { contact }); }
+export function reportWhatsAppContact(contact: string) { return callBackend('/api/whatsapp/report', { contact }); }

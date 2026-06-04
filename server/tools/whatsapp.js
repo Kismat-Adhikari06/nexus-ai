@@ -495,6 +495,200 @@ function clearSession() {
   }
 }
 
+// ─── Chat Management ─────────────────────────────────────────────────────────
+
+async function blockContact(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.updateBlockStatus(jid, 'block');
+    const name = getChatName(jid);
+    return `🚫 Blocked ${name} (${formatJid(jid)}). They can no longer message you.`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to block contact: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function unblockContact(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.updateBlockStatus(jid, 'unblock');
+    const name = getChatName(jid);
+    return `✅ Unblocked ${name} (${formatJid(jid)}). They can message you again.`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to unblock contact: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function deleteChat(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    // Delete chat using the last message for reference
+    const msgs = _messages[jid] || [];
+    const lastMsg = msgs[msgs.length - 1];
+    const lastMessages = lastMsg ? [{ id: lastMsg.key?.id, fromMe: lastMsg.key?.fromMe }] : [];
+    await sock.chatModify({ delete: true, lastMessages }, jid);
+    const name = getChatName(jid);
+    // Remove from local cache
+    _chats = _chats.filter(c => c.id !== jid);
+    delete _messages[jid];
+    _nameMapDirty = true;
+    return `🗑️ Deleted chat with ${name} (${formatJid(jid)}).`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to delete chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function archiveChat(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.chatModify({ archive: true }, jid);
+    const name = getChatName(jid);
+    return `📦 Archived chat with ${name} (${formatJid(jid)}).`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to archive chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function unarchiveChat(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.chatModify({ archive: false }, jid);
+    const name = getChatName(jid);
+    return `📂 Unarchived chat with ${name} (${formatJid(jid)}).`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to unarchive chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function muteChat(contactNameOrNumber, duration = 'always') {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    let muteEnd = 0;
+    switch (duration) {
+      case '8hours':
+        muteEnd = Math.floor(Date.now() / 1000) + 8 * 3600;
+        break;
+      case '1week':
+        muteEnd = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
+        break;
+      case 'always':
+      default:
+        muteEnd = Math.floor(Date.now() / 1000) + 100 * 365 * 24 * 3600; // ~100 years
+        break;
+    }
+    await sock.chatModify({ mute: muteEnd }, jid);
+    const name = getChatName(jid);
+    const durationLabel = duration === '8hours' ? '8 hours' : duration === '1week' ? '1 week' : 'always';
+    return `🔇 Muted ${name} (${formatJid(jid)}) for ${durationLabel}.`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to mute chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function unmuteChat(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.chatModify({ mute: null }, jid);
+    const name = getChatName(jid);
+    return `🔊 Unmuted ${name} (${formatJid(jid)}). Notifications are back on.`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to unmute chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function pinChat(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.chatModify({ pin: true }, jid);
+    const name = getChatName(jid);
+    return `📌 Pinned ${name} (${formatJid(jid)}).`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to pin chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function unpinChat(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.chatModify({ pin: false }, jid);
+    const name = getChatName(jid);
+    return `📌 Unpinned ${name} (${formatJid(jid)}).`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to unpin chat: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function markAsRead(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    await sock.chatModify({ markRead: true }, jid);
+    const name = getChatName(jid);
+    // Update local unread count
+    const chat = _chats.find(c => c.id === jid);
+    if (chat) chat.unreadCount = 0;
+    return `✅ Marked chat with ${name} (${formatJid(jid)}) as read.`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to mark as read: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
+async function reportContact(contactNameOrNumber) {
+  try {
+    const sock = await ensureConnection();
+    const jid = await resolveJid(contactNameOrNumber);
+    const name = getChatName(jid);
+    // WhatsApp Web API doesn't expose a report endpoint.
+    // The best we can do is block and explain how to report manually.
+    await sock.updateBlockStatus(jid, 'block');
+    return `🚫 Blocked ${name} (${formatJid(jid)}).\n\n⚠️ WhatsApp's API doesn't support reporting contacts programmatically. To report ${name} to WhatsApp:\n1. Open WhatsApp on your phone\n2. Open the chat with ${name}\n3. Tap the contact name → Report Contact\n\nThey have been blocked in the meantime.`;
+  } catch (e) {
+    if (_latestQRImage && !_connected) {
+      return `⚠️ Not connected. QR code ready — open http://localhost:3001/api/whatsapp/qr in your browser to scan.\n\nThen try again after scanning.`;
+    }
+    return `Failed to report contact: ${e instanceof Error ? e.message : 'Unknown error'}`;
+  }
+}
+
 module.exports = {
   listChats,
   getMessages,
@@ -504,4 +698,16 @@ module.exports = {
   getStatus,
   getQR,
   clearSession,
+  // New chat management
+  blockContact,
+  unblockContact,
+  deleteChat,
+  archiveChat,
+  unarchiveChat,
+  muteChat,
+  unmuteChat,
+  pinChat,
+  unpinChat,
+  markAsRead,
+  reportContact,
 };

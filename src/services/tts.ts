@@ -6,7 +6,7 @@ function getSynth(): SpeechSynthesis {
   return _synth;
 }
 
-export function speak(text: string): void {
+export function speak(text: string, onDone?: () => void): void {
   stopSpeaking();
   const synth = getSynth();
   const utterance = new SpeechSynthesisUtterance(text);
@@ -21,6 +21,11 @@ export function speak(text: string): void {
   utterance.rate = 1.1;
   utterance.pitch = 1.0;
   utterance.volume = 1.0;
+
+  if (onDone) {
+    utterance.onend = onDone;
+    utterance.onerror = onDone;
+  }
 
   _currentUtterance = utterance;
   synth.speak(utterance);

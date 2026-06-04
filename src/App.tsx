@@ -11,7 +11,7 @@ import { useVoiceRecorder } from './hooks/useVoiceRecorder';
 import { getAIResponse, parseToolCalls, stripFiller } from './services/api';
 import * as memory from './services/memory';
 import { transcribeAudio } from './services/stt';
-import { extractFacts } from './services/facts';
+
 import { verifyToken, apiRequest } from './services/apiClient';
 import * as tools from './services/tools';
 import type { AppStatus, AppView, Message, Conversation, User } from './types';
@@ -401,7 +401,6 @@ export default function App() {
 
       await memory.addToHistory('assistant', finalContent);
 
-      extractFacts(text, finalContent, groqApiKey);
     } catch (err) {
       const errorMsg: Message = {
         id: generateId(),

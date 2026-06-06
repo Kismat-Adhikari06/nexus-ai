@@ -49,12 +49,26 @@ export function findFile(filename: string) { return callBackend('/api/files/find
 export function getFileInfo(path: string) { return callBackend('/api/files/info', { path }); }
 export function listDirectory(path?: string) { return callBackend('/api/files/list', { path }); }
 // Browser tools (Playwright)
-export function openUrl(url: string) { return callBackend('/api/browser/open', { url }); }
-export function searchWeb(query: string) { return callBackend('/api/browser/search', { query: stripFiller(query) }); }
+export function browserLaunch() { return callBackend('/api/browser/launch'); }
+export function browserClose() { return callBackend('/api/browser/close'); }
+export function openUrl(url: string, maxParagraphs?: number, maxChars?: number) {
+  const body: Record<string, unknown> = { url };
+  if (maxParagraphs !== undefined) body.maxParagraphs = maxParagraphs;
+  if (maxChars !== undefined) body.maxChars = maxChars;
+  return callBackend('/api/browser/open', body);
+}
+export function searchWeb(query: string, maxParagraphs?: number, maxChars?: number) {
+  const body: Record<string, unknown> = { query: stripFiller(query) };
+  if (maxParagraphs !== undefined) body.maxParagraphs = maxParagraphs;
+  if (maxChars !== undefined) body.maxChars = maxChars;
+  return callBackend('/api/browser/search', body);
+}
 export function browserNavigate(url: string) { return callBackend('/api/browser/navigate', { url }); }
 export function browserSnapshot() { return callBackend('/api/browser/snapshot'); }
-export function browserAct(refId: string, action: string, value?: string) { return callBackend('/api/browser/act', { refId, action, value }); }
+export function browserAct(refId: string, doAction: string, value?: string) { return callBackend('/api/browser/act', { refId, do: doAction, value }); }
+export function browserActAndWait(refId: string, doAction: string, value?: string) { return callBackend('/api/browser/actAndWait', { refId, do: doAction, value }); }
 export function browserExtractText(selector: string) { return callBackend('/api/browser/extractText', { selector }); }
+export function browserGetText() { return callBackend('/api/browser/getText'); }
 export function browserScreenshot() { return callBackend('/api/browser/screenshot'); }
 
 // Extra tools

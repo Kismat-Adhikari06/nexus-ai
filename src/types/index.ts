@@ -6,6 +6,7 @@ export interface Message {
   content: string;
   timestamp: number;
   toolName?: string;
+  sources?: string[];
 }
 
 export type AppStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';

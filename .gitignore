@@ -28,3 +28,17 @@ dist-ssr
 
 # WhatsApp Baileys sessions
 server/sessions/
+
+# Screenshot files
+Screenshot*.png
+Screenshot*.jpg
+
+# Temp / debug files
+error
+nul
+para_temp
+server/nul
+server_err*.txt
+server_out*.txt
+server_error.txt
+test-memory.txt

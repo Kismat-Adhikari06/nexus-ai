@@ -119,12 +119,12 @@ router.get('/conversations', (req, res) => {
 });
 
 router.post('/conversations', (req, res) => {
-  const { title, messages } = req.body;
-  const id = generateId();
+  const { id, title, messages } = req.body;
+  const convId = id || generateId();
   const db = getDb();
   db.prepare('INSERT INTO conversations (id, user_id, title, messages) VALUES (?, ?, ?, ?)')
-    .run(id, req.user.userId, title || 'New conversation', JSON.stringify(messages || []));
-  res.json({ result: { id, title: title || 'New conversation' } });
+    .run(convId, req.user.userId, title || 'New conversation', JSON.stringify(messages || []));
+  res.json({ result: { id: convId, title: title || 'New conversation' } });
 });
 
 router.put('/conversations/:id', (req, res) => {

@@ -51,11 +51,15 @@ const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | str
   find_file: (filename) => tools.findFile(String(filename)),
   get_file_info: (path) => tools.getFileInfo(String(path)),
   list_directory: (path) => tools.listDirectory(path ? String(path) : undefined),
-  open_url: (url) => tools.openUrl(String(url)),
-  search_web: (query) => tools.searchWeb(String(query)),
+  open_url: (url, maxParagraphs, maxChars) => tools.openUrl(String(url), maxParagraphs ? Number(maxParagraphs) : undefined, maxChars ? Number(maxChars) : undefined),
+  search_web: (query, maxParagraphs, maxChars) => tools.searchWeb(String(query), maxParagraphs ? Number(maxParagraphs) : undefined, maxChars ? Number(maxChars) : undefined),
+  browser_launch: () => tools.browserLaunch(),
+  browser_close: () => tools.browserClose(),
   browser_navigate: (url) => tools.browserNavigate(String(url)),
   browser_snapshot: () => tools.browserSnapshot(),
-  browser_act: (refId, action, value) => tools.browserAct(String(refId), String(action), value ? String(value) : undefined),
+  browser_get_text: () => tools.browserGetText(),
+  browser_act: (refId, doAction, value) => tools.browserAct(String(refId), String(doAction), value ? String(value) : undefined),
+  browser_act_and_wait: (refId, doAction, value) => tools.browserActAndWait(String(refId), String(doAction), value ? String(value) : undefined),
   browser_extract_text: (selector) => tools.browserExtractText(String(selector)),
   browser_screenshot: () => tools.browserScreenshot(),
   clipboard_read: tools.clipboardRead,
@@ -126,11 +130,15 @@ const TOOL_PARAM_KEYS: Record<string, string[]> = {
   find_file: ['filename'],
   get_file_info: ['path'],
   list_directory: ['path'],
-  open_url: ['url'],
-  search_web: ['query'],
+  open_url: ['url', 'maxParagraphs', 'maxChars'],
+  search_web: ['query', 'maxParagraphs', 'maxChars'],
+  browser_launch: [],
+  browser_close: [],
   browser_navigate: ['url'],
   browser_snapshot: [],
-  browser_act: ['refId', 'action', 'value'],
+  browser_get_text: [],
+  browser_act: ['refId', 'do', 'value'],
+  browser_act_and_wait: ['refId', 'do', 'value'],
   browser_extract_text: ['selector'],
   browser_screenshot: [],
   clipboard_copy: ['text'],
@@ -178,6 +186,20 @@ async function executeToolCall(call: { action: string; [key: string]: unknown })
   } catch (e) {
     return `Failed: ${e instanceof Error ? e.message : 'Tool execution error'}`;
   }
+}
+
+function extractSources(calls: { action: string; [key: string]: unknown }[]): string[] {
+  const urls: string[] = [];
+  for (const call of calls) {
+    if (call.action === 'open_url' && call.url) {
+      urls.push(String(call.url));
+    } else if (call.action === 'search_web' && call.query) {
+      urls.push(`https://duckduckgo.com/?q=${encodeURIComponent(String(call.query))}`);
+    } else if (call.action === 'browser_navigate' && call.url) {
+      urls.push(String(call.url));
+    }
+  }
+  return urls;
 }
 
 export default function App() {
@@ -398,11 +420,13 @@ export default function App() {
         }
       }
 
+      const sources = extractSources(toolCalls);
       const aiMsg: Message = {
         id: generateId(),
         role: 'assistant',
         content: finalContent,
         timestamp: Date.now(),
+        sources: sources.length > 0 ? sources : undefined,
       };
       allNew.push(aiMsg);
 

@@ -34,32 +34,48 @@ app.post('/api/files/find', (req, res) => res.json({ result: files.findFile(req.
 app.post('/api/files/info', (req, res) => res.json({ result: files.getFileInfo(req.body.path) }));
 app.post('/api/files/list', (req, res) => res.json({ result: files.listDirectory(req.body.path) }));
 
-// Browser tools (Playwright — persistent headless browser)
-app.post('/api/browser/open', async (req, res) => {
-  try { res.json({ result: await browser.openUrl(req.body.url) }); }
+// Browser tools (Playwright — persistent headless browser, all auth-protected)
+app.post('/api/browser/launch', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.launch() }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/search', async (req, res) => {
-  try { res.json({ result: await browser.searchWeb(req.body.query) }); }
+app.post('/api/browser/close', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.close() }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/navigate', async (req, res) => {
+app.post('/api/browser/open', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.openUrl(req.body.url, req.body.maxParagraphs, req.body.maxChars) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/search', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.searchWeb(req.body.query, req.body.maxParagraphs, req.body.maxChars) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/navigate', authenticateToken, async (req, res) => {
   try { res.json({ result: await browser.navigate(req.body.url) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/snapshot', async (req, res) => {
+app.post('/api/browser/snapshot', authenticateToken, async (req, res) => {
   try { res.json({ result: await browser.snapshot() }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/act', async (req, res) => {
-  try { res.json({ result: await browser.act(req.body.refId, req.body.action, req.body.value) }); }
+app.post('/api/browser/act', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.act(req.body.refId, req.body.do, req.body.value) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/extractText', async (req, res) => {
+app.post('/api/browser/actAndWait', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.actAndWait(req.body.refId, req.body.do, req.body.value) }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/extractText', authenticateToken, async (req, res) => {
   try { res.json({ result: await browser.extractText(req.body.selector) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });
-app.post('/api/browser/screenshot', async (req, res) => {
+app.post('/api/browser/getText', authenticateToken, async (req, res) => {
+  try { res.json({ result: await browser.getPageText() }); }
+  catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+app.post('/api/browser/screenshot', authenticateToken, async (req, res) => {
   try { res.json({ result: await browser.screenshot() }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
 });

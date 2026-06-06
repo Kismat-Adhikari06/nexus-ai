@@ -1,30 +1,33 @@
 # Nexu — AI Desktop Assistant
 
-Nexu is a Windows-native AI assistant accessible via the browser. It supports voice input/output, tool execution (system control, file management, web search, and more), persistent memory, and multiple AI providers.
+Nexu is a Windows-native AI assistant accessible via the browser. It supports voice input, tool execution (system control, file management, web search, WhatsApp, and more), persistent server-side memory, multi-user auth, and multiple AI providers.
 
 ## Features
 
+### 🔐 Authentication
+- **Login / Signup** — Create an account or sign in with username + password
+- **JWT tokens** — 30-day expiry, stored in localStorage, sent with every API request
+- **Per-user isolation** — Each user has their own facts, history, and conversations
+
 ### 🤖 AI Chat
-- Conversational interface with real-time status indicators (idle, listening, thinking, speaking, error)
+- Conversational interface with real-time status indicators (idle, listening, thinking, error)
 - Multiple AI provider support: **Groq** (Llama 3.3 70B), **Gemini** (2.0 Flash), or **Auto** mode with automatic failover
 - Smart intent parsing — strips conversational filler for clean tool execution
 - Conversation history and sidebar navigation
 - Rich message bubbles with user/AI/tool role indicators
 
-### 🎤 Voice
+### 🎤 Voice Input
 - **Speech-to-Text** — Record audio via browser mic, transcribed by Groq's Whisper API
-- **Text-to-Speech** — AI responses spoken aloud via browser Speech Synthesis API with natural voice selection
-- Voice input/output toggles in Settings
+- **Text-to-Speech** — Click the speaker icon on any assistant message to read it aloud; click again to stop
 - Animated recording pulse and listening indicator
 
 ### 🧠 Memory & Facts
 - **Facts** — Rich key-value storage with **categories** (identity, preferences, relationships, dates, other), **confidence scores** (0–100), **source tracking** (direct statement, chat, WhatsApp), and **status** (saved, pending, rejected)
 - **Smart Extraction** — Only extracts when user speaks in first-person ("I", "my", "me"), ignores other people's details. Confidence ≥75 auto-saves, 50–74 goes to Pending tab for approval, <50 discarded
-- **Manual Fact Entry** — Add facts yourself from the Memory tab with a key, value, and category
+- **Manual Fact Entry** — Add facts yourself from the Memory tab
 - **Pending Approval** — Low-confidence facts await your approve/reject in a separate tab
 - **Inline Editing** — Edit fact values directly by clicking the edit icon
-- **Conversations** — Full chat sessions are saved to localStorage like ChatGPT, with auto-generated titles from the first message. Browse, reopen, or delete them from the sidebar
-- **History** — Individual message history with search, per-entry delete, and bulk delete
+- **Server-side storage** — All data stored in SQLite, per-user, not localStorage
 
 ### 🛠️ Tool System
 Nexu can execute tools by parsing structured JSON from the AI response. Tools are organized into categories:
@@ -70,10 +73,21 @@ Nexu can execute tools by parsing structured JSON from the AI response. Tools ar
 | `send_whatsapp_number` | Send a message by phone number |
 | `get_unread_whatsapp` | Get all unread messages |
 | `whatsapp_status` | Check WhatsApp connection status |
+| `whatsapp_qr` | Get the QR code link to connect WhatsApp |
+| `whatsapp_clear_session` | Clear WhatsApp session and re-link |
+| `whatsapp_block` | Block a contact |
+| `whatsapp_unblock` | Unblock a contact |
+| `whatsapp_delete_chat` | Delete an entire conversation |
+| `whatsapp_archive` | Archive a chat |
+| `whatsapp_unarchive` | Unarchive a chat |
+| `whatsapp_mute` | Mute a chat (8 hours / 1 week / always) |
+| `whatsapp_unmute` | Unmute a chat |
+| `whatsapp_pin` | Pin a chat to the top |
+| `whatsapp_unpin` | Unpin a chat |
+| `whatsapp_mark_read` | Mark a chat as read |
+| `whatsapp_report` | Report and block a contact |
 
-| `whatsapp_qr` | Get the QR code link to connect WhatsApp (opens in browser) |
-
-> **Note:** WhatsApp uses [Baileys](https://github.com/whiskeysockets/Baileys) (unofficial WhatsApp Web API). On first use, just call any WhatsApp tool (e.g. "List my WhatsApp chats") and then open `http://localhost:3001/api/whatsapp/qr` in your browser to see the QR code. Scan it with WhatsApp (Settings → Linked Devices → Link a Device). The QR is shown in the browser, not the terminal. Session is persisted in `server/sessions/whatsapp/`. Connection is lazy — established only when a WhatsApp tool is first called.
+> **WhatsApp Setup:** Uses [Baileys](https://github.com/whiskeysockets/Baileys) (unofficial WhatsApp Web API). Call any WhatsApp tool (e.g. "List my WhatsApp chats"), then open `http://localhost:3001/api/whatsapp/qr` in your browser to scan. Session auto-restores on server restart — no re-scan unless expired.
 
 #### Clipboard & Media
 | Tool | Description |
@@ -95,13 +109,12 @@ Nexu can execute tools by parsing structured JSON from the AI response. Tools ar
 | `search_memory` | Search past conversations |
 
 ### 🔗 Connections
-- **WhatsApp integration** — Connect your WhatsApp via QR code (Baileys-based). Dedicated Connections page with live status, connect/disconnect, and QR page access
+- **WhatsApp integration** — Dedicated Connections page with live status, connect/disconnect, and QR page access
 
 ### ⚙️ Settings
-- API key configuration for Groq and Gemini
+- API key configuration for Groq and Gemini (with eye toggle to reveal/hide keys)
 - AI provider selection (Groq, Gemini, or Auto-failover)
 - Hotkey configuration (Caps Lock, F4, F3, M, Space)
-- Voice input/output toggle switches
 - All settings persist in browser localStorage
 
 ### 🎨 UI/UX
@@ -110,7 +123,7 @@ Nexu can execute tools by parsing structured JSON from the AI response. Tools ar
 - Custom scrollbar styling
 - Empty state illustrations and guided tooltips
 - Responsive layout with sidebar navigation
-- Thinking dots animation and processing indicators
+- Collapsible tool result messages (hidden by default, click to expand)
 
 ## Getting Started
 
@@ -138,7 +151,7 @@ cd server && npm start
 npm run dev
 ```
 
-Open the URL shown by Vite (typically `http://localhost:5173`), go to Settings, enter your API key(s), and start chatting.
+Open the URL shown by Vite (typically `http://localhost:5173`), create an account, go to Settings, enter your API key(s), and start chatting.
 
 ### Build for Production
 
@@ -150,10 +163,11 @@ npm run preview
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React icons
-- **Backend**: Node.js, Express 5, CORS
+- **Backend**: Node.js, Express 5, CORS, better-sqlite3, bcryptjs, jsonwebtoken
 - **AI APIs**: Groq (Llama 3.3 70B), Google Gemini 2.0 Flash
 - **Voice**: Groq Whisper (STT), Web Speech API (TTS)
-- **Storage**: Browser localStorage (facts, conversation history, settings)
+- **WhatsApp**: @whiskeysockets/baileys
+- **Storage**: SQLite (server-side, per-user)
 
 ## Project Structure
 
@@ -165,8 +179,9 @@ nexu/
 │   │   ├── ChatInput.tsx   # Message input with auto-resize
 │   │   ├── Connections.tsx # WhatsApp connection management
 │   │   ├── Header.tsx      # Status bar component
-│   │   ├── MemoryView.tsx  # Facts & history browser
-│   │   ├── MessageBubble.tsx # Message display component
+│   │   ├── LoginPage.tsx   # Login/signup UI
+│   │   ├── MemoryView.tsx  # Facts browser
+│   │   ├── MessageBubble.tsx # Message display with TTS button
 │   │   ├── Settings.tsx    # Settings panel
 │   │   ├── Sidebar.tsx     # Navigation sidebar
 │   │   └── VoiceButton.tsx # Microphone button
@@ -174,26 +189,33 @@ nexu/
 │   │   └── useVoiceRecorder.ts # Audio recording hook
 │   ├── services/
 │   │   ├── api.ts          # AI provider API integration + tool parsing
+│   │   ├── apiClient.ts    # Auth & API request wrapper
 │   │   ├── facts.ts        # Automatic fact extraction from conversations
-│   │   ├── memory.ts       # localStorage-based facts & history storage
+│   │   ├── memory.ts       # Server-side facts & history storage (async)
 │   │   ├── stt.ts          # Speech-to-text via Groq Whisper
 │   │   ├── tools.ts        # Tool registry & backend API calls
 │   │   └── tts.ts          # Text-to-speech via Web Speech API
 │   ├── types/
 │   │   └── index.ts        # TypeScript type definitions
-│   ├── App.tsx             # Root component with state management
+│   ├── App.tsx             # Root component with auth + state management
 │   ├── main.tsx            # Entry point
 │   └── index.css           # Global styles & Tailwind theme
 ├── server/                 # Backend server
+│   ├── auth.js             # JWT auth, register, login, middleware
+│   ├── db.js               # SQLite database setup & schema
 │   ├── index.js            # Express server & route definitions
 │   ├── package.json        # Server dependencies
+│   ├── routes/
+│   │   └── storage.js      # Per-user facts, history, conversations API
+│   ├── data/               # SQLite database files (auto-created)
+│   ├── sessions/           # WhatsApp session files (auto-created)
 │   └── tools/
 │       ├── browser.js      # URL opening & web search
 │       ├── extra.js        # Clipboard, screenshots, YouTube playback
 │       ├── files.js        # File operations & search
 │       ├── pdf.js          # PDF text extraction
 │       ├── system.js       # System control (battery, CPU, volume, etc.)
-│       └── whatsapp.js     # WhatsApp (placeholder for Phase 2)
+│       └── whatsapp.js     # WhatsApp integration with auto-restore
 ├── package.json            # Frontend dependencies & scripts
 ├── vite.config.ts          # Vite configuration
 ├── tsconfig.json           # TypeScript configuration
@@ -202,12 +224,13 @@ nexu/
 
 ## How It Works
 
-1. **User sends a message** → Message appears in chat, sent to the selected AI provider with context (facts, history, tool descriptions)
-2. **AI responds** → Response may contain inline `---TOOL---` JSON blocks for tool execution
-3. **Tool execution** → Parsed tool calls are executed against the Express backend or browser APIs
-4. **Follow-up** → Tool results are sent back to the AI for a natural language summary
-5. **Memory extraction** → Facts are automatically extracted from conversations in the background
-6. **Voice output** → If enabled, the response is spoken aloud via the browser's speech synthesis
+1. **Auth** → User logs in or registers. JWT token returned and stored locally
+2. **User sends a message** → Message sent to the selected AI provider with context (facts, history, tool descriptions)
+3. **AI responds** → Response may contain inline `---TOOL---` JSON blocks for tool execution
+4. **Tool execution** → Parsed tool calls are executed against the Express backend or browser APIs
+5. **Follow-up** → Tool results are sent back to the AI for a natural language summary
+6. **Memory extraction** → Facts are automatically extracted from conversations in the background
+7. **Persistence** → All data saved to SQLite per-user via the backend API
 
 ## License
 

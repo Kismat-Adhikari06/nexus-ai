@@ -8,17 +8,26 @@ import Connections from './components/Connections';
 import ChatInput from './components/ChatInput';
 import LoginPage from './components/LoginPage';
 import { useVoiceRecorder } from './hooks/useVoiceRecorder';
-import { getAIResponse, parseToolCalls, stripFiller } from './services/api';
+import { stripFiller, buildSystemPrompt } from './services/api';
 import * as memory from './services/memory';
 import { transcribeAudio } from './services/stt';
 
 import { verifyToken, apiRequest } from './services/apiClient';
-import * as tools from './services/tools';
 import type { AppStatus, AppView, Message, Conversation, User } from './types';
 
 const LS_KEYS = 'nexu:groqApiKey';
 const LS_GEMINI = 'nexu:geminiApiKey';
 const LS_PROVIDER = 'nexu:provider';
+const LS_LOCAL_ENDPOINT = 'nexu:localEndpoint';
+const LS_LOCAL_MODEL = 'nexu:localModel';
+const LS_LOCAL_API_KEY = 'nexu:localApiKey';
+const LS_NVIDIA_KEY = 'nexu:nvidiaApiKey';
+const LS_NVIDIA_MODEL = 'nexu:nvidiaModel';
+const LS_OPENROUTER_KEY = 'nexu:openRouterApiKey';
+const LS_GROQ_MODEL = 'nexu:groqModel';
+const LS_GEMINI_MODEL = 'nexu:geminiModel';
+const LS_OPENROUTER_MODEL = 'nexu:openRouterModel';
+const LS_THEME = 'nexu:theme';
 
 function generateId() {
   return crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -31,172 +40,22 @@ function saveSetting(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
-// Map action names to tool functions
-const toolRegistry: Record<string, (...args: unknown[]) => Promise<string> | string> = {
-  get_battery: tools.getBattery,
-  get_cpu: tools.getCpu,
-  get_ram: tools.getRam,
-  set_volume: (level) => tools.setVolume(Number(level)),
-  notify: (title, message) => tools.notify(String(title), String(message)),
-  run_command: (command) => tools.runCommand(String(command)),
-  launch_app: (name) => tools.launchApp(String(name)),
-  lock_workstation: tools.lockWorkstation,
-  sleep: tools.sleep,
-  shutdown: tools.shutdownPC,
-  hibernate: tools.hibernate,
-  read_pdf: (path) => tools.readPdf(String(path)),
-  open_file: (path) => tools.openFile(String(path)),
-  open_in_vscode: (path) => tools.openInVscode(String(path)),
-  search_files: (query, location) => tools.searchFiles(String(query), location ? String(location) : undefined),
-  find_file: (filename) => tools.findFile(String(filename)),
-  get_file_info: (path) => tools.getFileInfo(String(path)),
-  list_directory: (path) => tools.listDirectory(path ? String(path) : undefined),
-  open_url: (url, maxParagraphs, maxChars) => tools.openUrl(String(url), maxParagraphs ? Number(maxParagraphs) : undefined, maxChars ? Number(maxChars) : undefined),
-  search_web: (query, maxParagraphs, maxChars) => tools.searchWeb(String(query), maxParagraphs ? Number(maxParagraphs) : undefined, maxChars ? Number(maxChars) : undefined),
-  browser_launch: () => tools.browserLaunch(),
-  browser_close: () => tools.browserClose(),
-  browser_navigate: (url) => tools.browserNavigate(String(url)),
-  browser_snapshot: () => tools.browserSnapshot(),
-  browser_get_text: () => tools.browserGetText(),
-  browser_act: (refId, doAction, value) => tools.browserAct(String(refId), String(doAction), value ? String(value) : undefined),
-  browser_act_and_wait: (refId, doAction, value) => tools.browserActAndWait(String(refId), String(doAction), value ? String(value) : undefined),
-  browser_extract_text: (selector) => tools.browserExtractText(String(selector)),
-  browser_screenshot: () => tools.browserScreenshot(),
-  clipboard_read: tools.clipboardRead,
-  clipboard_copy: (text) => tools.clipboardCopy(String(text)),
-  screenshot: tools.screenshot,
-  play_youtube: (query) => tools.playYoutube(String(query)),
-  remember: async (key, value) => memory.saveFact(String(key), String(value)),
-  recall: async (key) => {
-    const val = await memory.getFactValue(String(key));
-    return val || `I don't have anything saved for '${key}'`;
-  },
-  list_facts: async () => memory.listFacts(),
-  forget: async (key) => memory.deleteFact(String(key)),
-  approve_fact: async (key) => {
-    const result = await memory.approveFact(String(key));
-    return result ? `Approved fact '${key}'.` : `No pending fact found for '${key}'.`;
-  },
-  reject_fact: async (key) => {
-    const result = await memory.rejectFact(String(key));
-    return result ? `Rejected fact '${key}'.` : `No pending fact found for '${key}'.`;
-  },
-  search_memory: async (query) => {
-    const results = await memory.searchHistory(String(query), 3);
-    if (results.length === 0) return `No past conversations found matching '${query}'.`;
-    return results.map(r => `[${r.timestamp}] ${r.role}: ${r.content.substring(0, 200)}`).join('\n');
-  },
-  // WhatsApp tools
-  list_whatsapp_chats: (limit) => tools.listWhatsAppChats(limit ? Number(limit) : undefined),
-  get_whatsapp_messages: (chat, limit) => tools.getWhatsAppMessages(String(chat), limit ? Number(limit) : undefined),
-  send_whatsapp: (to, message) => tools.sendWhatsApp(String(to), String(message)),
-  send_whatsapp_number: (phoneNumber, message) => tools.sendWhatsAppNumber(String(phoneNumber), String(message)),
-  get_unread_whatsapp: () => tools.getUnreadWhatsApp(),
-  whatsapp_status: () => tools.whatsAppStatus(),
-  whatsapp_qr: async () => {
-    const result = await tools.getWhatsAppQR();
-    try {
-      const data = JSON.parse(result);
-      if (data.qrImage) {
-        return `📱 Scan this QR code to link WhatsApp:\n\nOpen this link in your browser to scan:\nhttp://localhost:3001/api/whatsapp/qr\n\nThen scan with WhatsApp → Settings → Linked Devices → Link a Device`;
-      }
-      return `No QR code available. Status: ${data.connected ? 'Already connected' : 'Not connected yet. Try calling a WhatsApp tool first.'}`;
-    } catch {
-      return result;
-    }
-  },
-  whatsapp_clear_session: () => tools.clearWhatsAppSession(),
-  whatsapp_block: (contact) => tools.blockWhatsAppContact(String(contact)),
-  whatsapp_unblock: (contact) => tools.unblockWhatsAppContact(String(contact)),
-  whatsapp_delete_chat: (contact) => tools.deleteWhatsAppChat(String(contact)),
-  whatsapp_archive: (contact) => tools.archiveWhatsAppChat(String(contact)),
-  whatsapp_unarchive: (contact) => tools.unarchiveWhatsAppChat(String(contact)),
-  whatsapp_mute: (contact, duration) => tools.muteWhatsAppChat(String(contact), duration ? String(duration) : undefined),
-  whatsapp_unmute: (contact) => tools.unmuteWhatsAppChat(String(contact)),
-  whatsapp_pin: (contact) => tools.pinWhatsAppChat(String(contact)),
-  whatsapp_unpin: (contact) => tools.unpinWhatsAppChat(String(contact)),
-  whatsapp_mark_read: (contact) => tools.markWhatsAppRead(String(contact)),
-  whatsapp_report: (contact) => tools.reportWhatsAppContact(String(contact)),
-};
-
-const TOOL_PARAM_KEYS: Record<string, string[]> = {
-  set_volume: ['level'],
-  notify: ['title', 'message'],
-  run_command: ['command'],
-  launch_app: ['name'],
-  open_file: ['path'],
-  open_in_vscode: ['path'],
-  search_files: ['query', 'location'],
-  find_file: ['filename'],
-  get_file_info: ['path'],
-  list_directory: ['path'],
-  open_url: ['url', 'maxParagraphs', 'maxChars'],
-  search_web: ['query', 'maxParagraphs', 'maxChars'],
-  browser_launch: [],
-  browser_close: [],
-  browser_navigate: ['url'],
-  browser_snapshot: [],
-  browser_get_text: [],
-  browser_act: ['refId', 'do', 'value'],
-  browser_act_and_wait: ['refId', 'do', 'value'],
-  browser_extract_text: ['selector'],
-  browser_screenshot: [],
-  clipboard_copy: ['text'],
-  play_youtube: ['query'],
-  remember: ['key', 'value'],
-  recall: ['key'],
-  forget: ['key'],
-  approve_fact: ['key'],
-  reject_fact: ['key'],
-  read_pdf: ['path'],
-  search_memory: ['query'],
-  lock_workstation: [],
-  sleep: [],
-  shutdown: [],
-  hibernate: [],
-  list_whatsapp_chats: ['limit'],
-  get_whatsapp_messages: ['chat', 'limit'],
-  send_whatsapp: ['to', 'message'],
-  send_whatsapp_number: ['phoneNumber', 'message'],
-  get_unread_whatsapp: [],
-  whatsapp_status: [],
-  whatsapp_qr: [],
-  whatsapp_clear_session: [],
-  whatsapp_block: ['contact'],
-  whatsapp_unblock: ['contact'],
-  whatsapp_delete_chat: ['contact'],
-  whatsapp_archive: ['contact'],
-  whatsapp_unarchive: ['contact'],
-  whatsapp_mute: ['contact', 'duration'],
-  whatsapp_unmute: ['contact'],
-  whatsapp_pin: ['contact'],
-  whatsapp_unpin: ['contact'],
-  whatsapp_mark_read: ['contact'],
-  whatsapp_report: ['contact'],
-};
-
-async function executeToolCall(call: { action: string; [key: string]: unknown }): Promise<string> {
-  const { action, ...params } = call;
-  const fn = toolRegistry[action];
-  if (!fn) return `Unknown tool: ${action}`;
-  try {
-    const keys = TOOL_PARAM_KEYS[action] || Object.keys(params);
-    const args = keys.map(k => params[k]);
-    return await Promise.resolve(fn(...args));
-  } catch (e) {
-    return `Failed: ${e instanceof Error ? e.message : 'Tool execution error'}`;
-  }
+interface ToolCallResult {
+  action: string;
+  params: Record<string, unknown>;
+  result: string;
 }
 
-function extractSources(calls: { action: string; [key: string]: unknown }[]): string[] {
+function extractSources(calls: ToolCallResult[]): string[] {
   const urls: string[] = [];
   for (const call of calls) {
-    if (call.action === 'open_url' && call.url) {
-      urls.push(String(call.url));
-    } else if (call.action === 'search_web' && call.query) {
-      urls.push(`https://duckduckgo.com/?q=${encodeURIComponent(String(call.query))}`);
-    } else if (call.action === 'browser_navigate' && call.url) {
-      urls.push(String(call.url));
+    const p = call.params || {};
+    if (call.action === 'open_url' && p.url) {
+      urls.push(String(p.url));
+    } else if (call.action === 'search_web' && p.query) {
+      urls.push(`https://duckduckgo.com/?q=${encodeURIComponent(String(p.query))}`);
+    } else if (call.action === 'browser_navigate' && p.url) {
+      urls.push(String(p.url));
     }
   }
   return urls;
@@ -216,6 +75,16 @@ export default function App() {
   const [groqApiKey, setGroqApiKey] = useState(() => loadSetting(LS_KEYS, ''));
   const [geminiApiKey, setGeminiApiKey] = useState(() => loadSetting(LS_GEMINI, ''));
   const [provider, setProvider] = useState(() => loadSetting(LS_PROVIDER, 'auto'));
+  const [localEndpoint, setLocalEndpoint] = useState(() => loadSetting(LS_LOCAL_ENDPOINT, 'http://localhost:1234/v1/chat/completions'));
+  const [localModel, setLocalModel] = useState(() => loadSetting(LS_LOCAL_MODEL, 'local-model'));
+  const [localApiKey, setLocalApiKey] = useState(() => loadSetting(LS_LOCAL_API_KEY, ''));
+  const [nvidiaApiKey, setNvidiaApiKey] = useState(() => loadSetting(LS_NVIDIA_KEY, ''));
+  const [nvidiaModel, setNvidiaModel] = useState(() => loadSetting(LS_NVIDIA_MODEL, 'deepseek-ai/deepseek-v4-flash'));
+  const [openRouterApiKey, setOpenRouterApiKey] = useState(() => loadSetting(LS_OPENROUTER_KEY, ''));
+  const [groqModel, setGroqModel] = useState(() => loadSetting(LS_GROQ_MODEL, 'llama-3.3-70b-versatile'));
+  const [geminiModel, setGeminiModel] = useState(() => loadSetting(LS_GEMINI_MODEL, 'gemini-2.0-flash'));
+  const [openRouterModel, setOpenRouterModel] = useState(() => loadSetting(LS_OPENROUTER_MODEL, 'deepseek/deepseek-chat'));
+  const [theme, setTheme] = useState<string>(() => loadSetting(LS_THEME, 'dark'));
   const [hotkey, setHotkey] = useState('F4');
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
@@ -277,6 +146,21 @@ export default function App() {
   useEffect(() => { saveSetting(LS_KEYS, groqApiKey); }, [groqApiKey]);
   useEffect(() => { saveSetting(LS_GEMINI, geminiApiKey); }, [geminiApiKey]);
   useEffect(() => { saveSetting(LS_PROVIDER, provider); }, [provider]);
+  useEffect(() => { saveSetting(LS_LOCAL_ENDPOINT, localEndpoint); }, [localEndpoint]);
+  useEffect(() => { saveSetting(LS_LOCAL_MODEL, localModel); }, [localModel]);
+  useEffect(() => { saveSetting(LS_LOCAL_API_KEY, localApiKey); }, [localApiKey]);
+  useEffect(() => { saveSetting(LS_NVIDIA_KEY, nvidiaApiKey); }, [nvidiaApiKey]);
+  useEffect(() => { saveSetting(LS_NVIDIA_MODEL, nvidiaModel); }, [nvidiaModel]);
+  useEffect(() => { saveSetting(LS_OPENROUTER_KEY, openRouterApiKey); }, [openRouterApiKey]);
+  useEffect(() => { saveSetting(LS_GROQ_MODEL, groqModel); }, [groqModel]);
+  useEffect(() => { saveSetting(LS_GEMINI_MODEL, geminiModel); }, [geminiModel]);
+  useEffect(() => { saveSetting(LS_OPENROUTER_MODEL, openRouterModel); }, [openRouterModel]);
+  useEffect(() => { saveSetting(LS_THEME, theme); }, [theme]);
+
+  // Apply theme to <html>
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
   const { isRecording, startRecording, stopRecording, onRecordingComplete } = useVoiceRecorder();
 
@@ -342,33 +226,53 @@ export default function App() {
     const history = histEntries
       .map(r => `${r.role === 'user' ? 'User' : 'Nexu'}: ${r.content.substring(0, 200)}`).join('\n');
 
-    const rawResponse = await getAIResponse(
-      currentMessages,
-      { groqApiKey, geminiApiKey, provider: provider === 'auto' ? 'auto' : provider },
-      facts,
-      history
-    );
+    // Build the system prompt with facts and history
+    const systemPrompt = buildSystemPrompt(facts, history);
 
-    const toolCalls = parseToolCalls(rawResponse);
-    const text = rawResponse.split('---TOOL---')[0].trim();
+    // The server-side /api/chat endpoint handles the full autonomous loop:
+    // LLM call → parse tool calls → execute tools → loop back to LLM → repeat
+    // until the LLM returns pure conversational text (no tool calls).
+    const data = await apiRequest<{
+      result: { content: string; toolCalls: ToolCallResult[] };
+    }>('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...currentMessages.map(m => ({ role: m.role, content: m.content })),
+        ],
+        groqApiKey,
+        geminiApiKey,
+        nvidiaApiKey,
+        nvidiaModel,
+        openRouterApiKey,
+        groqModel,
+        geminiModel,
+        openRouterModel,
+        provider: provider === 'auto' ? 'auto' : provider,
+        localEndpoint,
+        localModel,
+        localApiKey,
+      }),
+    });
 
-    if (toolCalls.length > 0) {
-      const toolMsgs: Message[] = [];
-      for (const call of toolCalls) {
-        const result = await executeToolCall(call);
-        toolMsgs.push({
-          id: generateId(),
-          role: 'tool',
-          content: result,
-          timestamp: Date.now(),
-          toolName: call.action,
-        });
-      }
-      return { text: text || toolMsgs.map(m => m.content).join('. '), toolMessages: toolMsgs, toolCalls };
-    }
+    const { content, toolCalls } = data.result;
 
-    return { text, toolMessages: [] as Message[], toolCalls: [] as { action: string; [key: string]: unknown }[] };
-  }, [groqApiKey, geminiApiKey, provider, user]);
+    // Build tool messages for the UI (collapsible cards)
+    const toolMessages: Message[] = (toolCalls || []).map(tc => ({
+      id: generateId(),
+      role: 'tool' as const,
+      content: tc.result,
+      timestamp: Date.now(),
+      toolName: tc.action,
+    }));
+
+    return {
+      text: content,
+      toolMessages,
+      toolCalls: (toolCalls || []) as unknown as { action: string; [key: string]: unknown }[],
+    };
+  }, [groqApiKey, geminiApiKey, nvidiaApiKey, nvidiaModel, openRouterApiKey, groqModel, geminiModel, openRouterModel, provider, user, localEndpoint, localModel, localApiKey]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     const userMsg: Message = {
@@ -383,57 +287,23 @@ export default function App() {
       const cleanText = stripFiller(text);
       const { text: responseText, toolMessages, toolCalls } = await processAIResponse(cleanText, updatedMessages);
 
-      let finalContent = responseText;
-      const allNew: Message[] = [];
-
-      if (toolCalls.length > 0) {
-        allNew.push(...toolMessages);
-
-        const toolResultsText = toolMessages.map(m =>
-          `[${m.toolName}]: ${m.content}`
-        ).join('\n');
-
-        const followUp = [
-          { role: 'user' as const, content: `Original request: "${text}"\n\nTool results:\n${toolResultsText}\n\nRespond to the user naturally based on these results. Be concise.` },
-        ];
-
-        try {
-          const recentFacts = await memory.getRecentFacts(20);
-          let facts = Object.entries(recentFacts)
-            .map(([k, v]) => `${k}: ${v.value}`).join('\n');
-          if (user && !recentFacts['name']) {
-            facts = `name: ${user.username}\n${facts}`;
-          }
-          const histEntries = await memory.searchHistory(text, 3);
-          const history = histEntries
-            .map(r => `${r.role === 'user' ? 'User' : 'Nexu'}: ${r.content.substring(0, 200)}`).join('\n');
-
-          finalContent = await getAIResponse(
-            followUp as unknown as Message[],
-            { groqApiKey, geminiApiKey, provider },
-            facts,
-            history
-          );
-          finalContent = finalContent.split('---TOOL---')[0].trim();
-        } catch {
-          finalContent = responseText || `Done: ${toolCalls.map(t => t.action).join(', ')}`;
-        }
-      }
-
-      const sources = extractSources(toolCalls);
-      const aiMsg: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: finalContent,
-        timestamp: Date.now(),
-        sources: sources.length > 0 ? sources : undefined,
-      };
-      allNew.push(aiMsg);
+      // The server already looped through all tool executions autonomously
+      // and returned the final natural-language response. No second AI call needed.
+      const sources = extractSources(toolCalls as ToolCallResult[]);
+      const allNew: Message[] = [
+        ...toolMessages,
+        {
+          id: generateId(),
+          role: 'assistant',
+          content: responseText,
+          timestamp: Date.now(),
+          sources: sources.length > 0 ? sources : undefined,
+        },
+      ];
 
       setMessages(prev => [...prev, ...allNew]);
       setStatus('idle');
-
-      await memory.addToHistory('assistant', finalContent);
+      await memory.addToHistory('assistant', responseText);
 
     } catch (err) {
       const errorMsg: Message = {
@@ -445,7 +315,7 @@ export default function App() {
       setMessages(prev => [...prev, errorMsg]);
       setStatus('error');
     }
-  }, [messages, processAIResponse, groqApiKey, user]);
+  }, [messages, processAIResponse, user]);
 
   const handleRecordingComplete = useCallback(async (blob: Blob) => {
     const apiKey = groqApiKey;
@@ -532,7 +402,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-nexu-bg">
-      <Header status={status} isRecording={isRecording} />
+      <Header status={status} isRecording={isRecording} theme={theme} onThemeChange={setTheme} />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           activeView={activeView}
@@ -561,12 +431,30 @@ export default function App() {
           <Settings
             groqApiKey={groqApiKey}
             geminiApiKey={geminiApiKey}
+            nvidiaApiKey={nvidiaApiKey}
+            groqModel={groqModel}
+            geminiModel={geminiModel}
+            openRouterModel={openRouterModel}
+            nvidiaModel={nvidiaModel}
+            openRouterApiKey={openRouterApiKey}
             provider={provider}
             hotkey={hotkey}
+            localEndpoint={localEndpoint}
+            localModel={localModel}
+            localApiKey={localApiKey}
             onGroqKeyChange={setGroqApiKey}
             onGeminiKeyChange={setGeminiApiKey}
+            onNvidiaKeyChange={setNvidiaApiKey}
+            onGroqModelChange={setGroqModel}
+            onGeminiModelChange={setGeminiModel}
+            onOpenRouterModelChange={setOpenRouterModel}
+            onNvidiaModelChange={setNvidiaModel}
+            onOpenRouterKeyChange={setOpenRouterApiKey}
             onProviderChange={setProvider}
             onHotkeyChange={setHotkey}
+            onLocalEndpointChange={setLocalEndpoint}
+            onLocalModelChange={setLocalModel}
+            onLocalApiKeyChange={setLocalApiKey}
           />
         ) : (
           <MemoryView />

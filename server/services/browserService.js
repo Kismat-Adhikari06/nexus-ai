@@ -5,12 +5,63 @@ const LAUNCH_ARGS = [
   '--no-sandbox',
   '--disable-web-security',
   '--disable-features=IsolateOrigins,site-per-process',
+  '--disable-infobars',
+  '--disable-dev-shm-usage',
+  '--disable-extensions',
+  '--remote-debugging-port=0',
 ];
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
+// ─── Anti-bot stealth init script ───────────────────────────────────────────
+// Injected into every page before any site JS runs to mask headless browser
+// signals and make automation harder to detect.
+const STEALTH_INIT_SCRIPT = () => {
+  // 1. Hide webdriver flag (most common check)
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+  // 2. Populate plugins array (headless Chrome reports 0, real has several)
+  Object.defineProperty(navigator, 'plugins', {
+    get: () => [
+      { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+      { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+      { name: 'Native Client', filename: 'internal-nacl-plugin' },
+    ],
+  });
+
+  // 3. Set realistic language preferences
+  Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+  // 4. Mock permissions.query to avoid automation detection
+  const originalQuery = navigator.permissions.query;
+  navigator.permissions.query = (params) => (
+    params.name === 'notifications'
+      ? Promise.resolve({ state: 'prompt', onchange: null })
+      : originalQuery(params)
+  );
+
+  // 5. Mock chrome.runtime for sites that check for it
+  if (!window.chrome) window.chrome = {};
+  if (!window.chrome.runtime) window.chrome.runtime = {};
+
+  // 6. Spoof WebGL vendor/renderer to mask headless GPU
+  const getParam = WebGLRenderingContext.prototype.getParameter;
+  WebGLRenderingContext.prototype.getParameter = function (param) {
+    if (param === 37445) return 'Intel Inc.';            // UNMASKED_VENDOR_WEBGL
+    if (param === 37446) return 'Intel Iris OpenGL Engine'; // UNMASKED_RENDERER_WEBGL
+    return getParam.call(this, param);
+  };
+};
+
+// ─── Random delay helpers for human-like interaction ────────────────────────
+function randomDelay(min = 20, max = 70) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 let browser = null;
 let page = null;
+let context = null;
+let pageListenerAttached = false;
 
 // ─── Operation mutex ─────────────────────────────────────────────────────────
 let operationQueue = Promise.resolve();
@@ -27,31 +78,44 @@ async function getBrowser() {
   return browser;
 }
 
+function attachPageListener(ctx) {
+  if (pageListenerAttached) return;
+  pageListenerAttached = true;
+  ctx.on('page', async (newPage) => {
+    page = newPage;
+    try {
+      await newPage.waitForLoadState('domcontentloaded');
+      await newPage.addInitScript(STEALTH_INIT_SCRIPT);
+    } catch {
+      // page might close before fully loading
+    }
+  });
+}
+
 async function getPage() {
   const b = await getBrowser();
   if (page && !page.isClosed()) return page;
   const contexts = b.contexts();
   if (contexts.length > 0) {
-    const pages = contexts[0].pages();
+    context = contexts[0];
+    attachPageListener(context);
+    const pages = context.pages();
     if (pages.length > 0) {
-      page = pages[0];
-      await page.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      });
+      page = pages[pages.length - 1];
+      await page.addInitScript(STEALTH_INIT_SCRIPT);
       return page;
     }
   }
-  const context = await b.newContext({
+  context = await b.newContext({
     bypassCSP: true,
     userAgent: USER_AGENT,
     viewport: { width: 1920, height: 1080 },
     locale: 'en-US',
     timezoneId: 'America/New_York',
   });
+  attachPageListener(context);
   page = await context.newPage();
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  });
+  await page.addInitScript(STEALTH_INIT_SCRIPT);
   return page;
 }
 
@@ -74,6 +138,13 @@ async function navigate(url) {
   }
   const p = await getPage();
   await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+  // Wait for network idle so heavy SPA sites (Notion, etc.) have time to
+  // render their JavaScript-driven content before we try to extract text.
+  await p.waitForLoadState('networkidle', { timeout: 7000 }).catch(() => {
+    console.log('Network idle timed out, proceeding with current state.');
+  });
+
   return `Navigated to ${url}`;
 }
 
@@ -292,99 +363,329 @@ async function closeBrowser() {
     await browser.close().catch(() => {});
     browser = null;
     page = null;
+    context = null;
+    pageListenerAttached = false;
   }
 }
 
-// ─── Snapshot system ─────────────────────────────────────────────────────────
-const SNAPSHOT_REFS = new WeakMap();
+// ─── Snapshot system (accessibility tree via CDP) ────────────────────────────
+// Uses Chrome DevTools Protocol's Accessibility.getFullAXTree (via CDPSession)
+// to detect ALL interactive elements — including clickable <div>, <span>, and
+// role="button" elements that modern websites use. This works across all
+// Playwright versions since it goes through CDP directly.
+// Maps ref IDs to {role, name} locators and uses getByRole for actions instead
+// of fragile CSS selectors.
+
+const INTERACTIVE_ROLES = new Set([
+  'button', 'link', 'checkbox', 'radio', 'textbox', 'searchbox',
+  'combobox', 'listbox', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+  'option', 'slider', 'spinbutton', 'switch', 'tab', 'treeitem',
+  'menubar', 'tablist', 'toolbar', 'tree',
+]);
+
+const TEXT_ROLES = new Set([
+  'heading', 'article', 'note', 'alert', 'status', 'timer',
+  'listitem', 'figure', 'caption', 'cell', 'gridcell', 'columnheader',
+  'rowheader', 'label', 'definition', 'term', 'math', 'alertdialog',
+  'dialog', 'region', 'tooltip', 'complementary', 'contentinfo',
+  'banner', 'navigation', 'main', 'form', 'search', 'group', 'img',
+]);
+
+const SNAPSHOT_REFS = new WeakMap(); // Map<Page, Array<{role: string, name: string}>>
+
+// ─── Snapshot size budget ───────────────────────────────────────────────────
+// MAX_SNAPSHOT_CHARS caps the snapshot output at ~6000 tokens (chars / 4 ≈ tokens)
+// to avoid hitting LLM provider rate limits (e.g. Groq 413 / TPM exceeded) on
+// heavy sites like Amazon with hundreds of interactive elements.
+const MAX_SNAPSHOT_CHARS = 24000;
+const MAX_ELEMENT_NAME_LENGTH = 200;
+
+// ─── CDP-based accessibility tree builder ───────────────────────────────────
+// Uses Chrome DevTools Protocol's Accessibility.getFullAXTree to fetch the
+// complete accessibility tree. This works across all Playwright versions and
+// returns richer data than page.accessibility.snapshot().
+// Converts the flat CDP node array into a nested tree structure.
+async function buildAccessibilityTree(page) {
+  try {
+    const client = await page.context().newCDPSession(page);
+    const { nodes } = await client.send('Accessibility.getFullAXTree');
+
+    if (!nodes || nodes.length === 0) return null;
+
+    // Build a map: nodeId -> processed entry
+    const nodeMap = new Map();
+
+    for (const node of nodes) {
+      // Skip fully ignored nodes (internal layout / invisible)
+      if (node.ignored && !node.childIds?.length) continue;
+
+      const entry = {
+        role: node.role?.value || '',
+        name: node.name?.value || '',
+        children: [],
+        _childIds: node.childIds || [],
+        _ignored: !!node.ignored,
+        value: undefined,
+        checked: undefined,
+        disabled: undefined,
+        level: undefined,
+      };
+
+      // Extract properties from the CDP properties array
+      if (node.properties) {
+        for (const prop of node.properties) {
+          switch (prop.name) {
+            case 'checked':
+              entry.checked = prop.value?.value;
+              break;
+            case 'disabled':
+              entry.disabled = prop.value?.value === true ? true : undefined;
+              break;
+            case 'level':
+              entry.level = typeof prop.value?.value === 'number' ? prop.value.value : undefined;
+              break;
+            case 'value':
+              entry.value = prop.value?.value;
+              break;
+            case 'valuetext':
+              if (entry.value === undefined) entry.value = prop.value?.value;
+              break;
+          }
+        }
+      }
+
+      nodeMap.set(node.nodeId, entry);
+    }
+
+    // Link children and track which nodes are referenced as children
+    const childIdSet = new Set();
+    for (const [, entry] of nodeMap) {
+      if (entry._ignored || !entry._childIds.length) continue;
+      for (const childId of entry._childIds) {
+        const child = nodeMap.get(childId);
+        if (child && !child._ignored) {
+          entry.children.push(child);
+          childIdSet.add(childId);
+        }
+      }
+    }
+
+    // Find root nodes (not referenced as a child of any other node)
+    const roots = [];
+    for (const [nodeId, entry] of nodeMap) {
+      if (!entry._ignored && entry.role && !childIdSet.has(nodeId)) {
+        roots.push(entry);
+      }
+    }
+
+    if (roots.length === 0) return null;
+
+    // Return the tree — single root directly, or wrap multiple roots
+    const tree = roots.length === 1 ? roots[0] : { role: 'RootWebArea', name: '', children: roots };
+
+    // Clean up internal fields from the tree
+    function clean(node) {
+      delete node._childIds;
+      delete node._ignored;
+      if (node.children) {
+        for (const child of node.children) clean(child);
+      }
+    }
+    clean(tree);
+
+    // Clean the temporary map entries (in case any leaked into children)
+    for (const [, entry] of nodeMap) {
+      delete entry._childIds;
+      delete entry._ignored;
+    }
+
+    return tree;
+  } catch (e) {
+    console.warn('CDP accessibility tree failed:', e.message);
+    return null;
+  }
+}
 
 async function snapshot() {
   const p = await getPage();
 
-  const elements = await p.evaluate(() => {
-    const items = [];
+  // Use CDPSession (Chrome DevTools Protocol) to get accessibility tree.
+  // The standard page.accessibility.snapshot() is not available in some
+  // Playwright versions, but CDP's Accessibility domain works universally
+  // with Chromium and returns richer data.
+  const axTree = await buildAccessibilityTree(p);
+  if (!axTree) return 'Page has no accessible content.';
 
-    document.querySelectorAll('a, button, input, textarea, select, [role="button"], [tabindex]:not([tabindex="-1"])').forEach(el => {
-      if (el.type === 'hidden') return;
-      const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return;
-      const tag = el.tagName.toLowerCase();
-      const type = el.type || '';
-      const text = el.innerText || el.value || el.placeholder || '';
-      const selector = buildSelector(el);
-      if (tag === 'a') {
-        items.push({ type: 'link', text: text.trim(), href: el.href, selector });
-      } else if (tag === 'button' || el.getAttribute('role') === 'button') {
-        items.push({ type: 'button', text: text.trim(), selector });
-      } else if (tag === 'input' || tag === 'textarea') {
-        items.push({ type: 'input', text: text.trim(), selector, inputType: type });
-      } else if (tag === 'select') {
-        items.push({ type: 'select', text: text.trim(), selector });
-      }
-    });
+  const interactiveItems = [];
+  const locators = [];
+  const textItems = [];
 
-    document.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, th, td, label, figcaption, blockquote').forEach(el => {
-      const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return;
-      const text = el.innerText.trim();
-      if (text) {
-        items.push({ type: 'text', text: text.substring(0, 200), tag: el.tagName.toLowerCase(), selector: buildSelector(el) });
-      }
-    });
+  function walk(node) {
+    if (!node || !node.role) return;
+    const role = node.role;
+    const name = (node.name || '').trim();
 
-    return items;
-
-    function buildSelector(el) {
-      if (el.id) return '#' + CSS.escape(el.id);
-      if (el.name) return el.tagName.toLowerCase() + '[name="' + CSS.escape(el.name) + '"]';
-      let sel = el.tagName.toLowerCase();
-      if (el.className && typeof el.className === 'string') {
-        const cls = el.className.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(c => '.' + CSS.escape(c)).join('');
-        if (cls) sel += cls;
+    // Skip internal/low-level role types
+    if (role === 'InlineTextBox' || role === 'text' || role === 'generic' ||
+        role === 'none' || role === 'presentation' || role === 'paragraph') {
+      if (node.children && Array.isArray(node.children)) {
+        for (const child of node.children) walk(child);
       }
-      const parent = el.parentElement;
-      if (parent) {
-        const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
-        if (siblings.length > 1) {
-          const idx = siblings.indexOf(el) + 1;
-          sel += ':nth-of-type(' + idx + ')';
-        }
-      }
-      return sel;
+      return;
     }
-  });
 
-  const refs = elements.map(el => el.selector);
-  SNAPSHOT_REFS.set(p, refs);
+    if (INTERACTIVE_ROLES.has(role) && name) {
+      interactiveItems.push({ role, name, value: node.value, checked: node.checked, disabled: node.disabled });
+      locators.push({ role, name });
+    } else if (TEXT_ROLES.has(role) && name) {
+      textItems.push({ role, name, level: node.level });
+    }
 
-  const lines = [];
+    if (node.children && Array.isArray(node.children)) {
+      for (const child of node.children) walk(child);
+    }
+  }
+
+  walk(axTree);
+
+  SNAPSHOT_REFS.set(p, locators);
+
+  // ── Build output ───────────────────────────────────────────────────────
+  // Numbered ref IDs for interactive elements, indented descriptions for
+  // text elements (no ref ID — can't be acted upon).
   let refId = 0;
-  for (const el of elements) {
+  const lines = [];
+  const textLines = [];
+
+  for (const item of interactiveItems) {
     refId++;
-    switch (el.type) {
+    const { role, name, value, checked, disabled } = item;
+    const val = value != null ? String(value) : '';
+
+    // Truncate long element names to avoid blowing up the token budget
+    const safeName = name.length > MAX_ELEMENT_NAME_LENGTH
+      ? name.substring(0, MAX_ELEMENT_NAME_LENGTH) + '…'
+      : name;
+
+    switch (role) {
       case 'link':
-        lines.push(`[${refId}] Link: "${el.text}" → ${el.href}`);
+        lines.push(`[${refId}] Link: "${safeName}"`);
         break;
       case 'button':
-        lines.push(`[${refId}] Button: "${el.text}"`);
+        lines.push(`[${refId}] Button: "${safeName}"${disabled ? ' (disabled)' : ''}`);
         break;
-      case 'input':
-        lines.push(`[${refId}] Input: "${el.text}"${el.inputType ? ' (type: ' + el.inputType + ')' : ''}`);
+      case 'textbox':
+      case 'searchbox':
+        const tbLabel = role === 'textbox' ? 'Input' : 'Search';
+        lines.push(`[${refId}] ${tbLabel}: "${safeName}"${disabled ? ' (disabled)' : ''}`);
         break;
-      case 'select':
-        lines.push(`[${refId}] Select: "${el.text}"`);
+      case 'combobox':
+        lines.push(`[${refId}] Select: "${safeName}"`);
         break;
-      case 'text':
-        const label = ({
-          h1:'Heading', h2:'Heading', h3:'Heading', h4:'Heading', h5:'Heading', h6:'Heading',
-          p:'Text', li:'List item', td:'Cell', th:'Cell', label:'Label',
-          figcaption:'Caption', blockquote:'Quote',
-        })[el.tag] || el.tag;
-        lines.push(`[${refId}] ${label}: "${el.text}"`);
+      case 'checkbox':
+        lines.push(`[${refId}] Checkbox: "${safeName}"${checked !== undefined ? ` (${checked ? 'checked' : 'unchecked'})` : ''}`);
+        break;
+      case 'radio':
+        lines.push(`[${refId}] Radio: "${safeName}"${checked ? ' (selected)' : ''}`);
+        break;
+      case 'switch':
+        lines.push(`[${refId}] Switch: "${safeName}"${checked !== undefined ? ` (${checked ? 'on' : 'off'})` : ''}`);
+        break;
+      case 'slider':
+        lines.push(`[${refId}] Slider: "${safeName}"${val ? ` (value: ${val})` : ''}`);
+        break;
+      case 'spinbutton':
+        lines.push(`[${refId}] Spin button: "${safeName}"${val ? ` (value: ${val})` : ''}`);
+        break;
+      case 'tab':
+        lines.push(`[${refId}] Tab: "${safeName}"`);
+        break;
+      case 'menuitem':
+      case 'menuitemcheckbox':
+      case 'menuitemradio':
+        lines.push(`[${refId}] Menu item: "${safeName}"`);
+        break;
+      case 'option':
+        lines.push(`[${refId}] Option: "${safeName}"`);
+        break;
+      default:
+        lines.push(`[${refId}] ${role}: "${safeName}"`);
         break;
     }
   }
-  return lines.join('\n') || 'Page has no interactive or readable content.';
+
+  // Build text lines separately (so we can drop them first when over budget)
+  for (const item of textItems) {
+    const { role, name, level } = item;
+    const snippet = name.length > MAX_ELEMENT_NAME_LENGTH
+      ? name.substring(0, MAX_ELEMENT_NAME_LENGTH) + '…'
+      : name;
+    const roleLabel = ({
+      heading: level ? `Heading (h${level})` : 'Heading',
+      listitem: 'List item',
+      label: 'Label',
+      cell: 'Cell',
+      gridcell: 'Cell',
+      columnheader: 'Col header',
+      rowheader: 'Row header',
+      caption: 'Caption',
+      figure: 'Figure',
+      article: 'Article',
+      note: 'Note',
+    })[role] || role;
+    textLines.push(`  ${roleLabel}: "${snippet}"`);
+  }
+
+  // ── Token budget enforcement ───────────────────────────────────────────
+  // Progressive truncation: drop text lines first, then cap interactive
+  // items, so the LLM always gets the actionable elements it needs.
+  function joinAndCap(interactive, text) {
+    const allParts = [];
+    if (interactive.length > 0) allParts.push(interactive.join('\n'));
+    if (text.length > 0) {
+      if (allParts.length > 0) allParts.push('');
+      allParts.push(text.join('\n'));
+    }
+    let result = allParts.join('\n');
+
+    if (result.length <= MAX_SNAPSHOT_CHARS) return result;
+
+    // Step 1: Drop all text/indented lines (lowest priority — the AI can
+    // use browser_get_text and browser_snapshot for detailed reading)
+    result = interactive.join('\n');
+    if (result.length <= MAX_SNAPSHOT_CHARS) {
+      return result + '\n\n[... text content omitted — use browser_get_text to read, or call browser_snapshot for updated elements]';
+    }
+
+    // Step 2: Drop interactive items from the bottom until we fit
+    const parts = [];
+    let budget = MAX_SNAPSHOT_CHARS - 100; // leave room for truncation note
+    for (let i = 0; i < interactive.length; i++) {
+      const line = interactive[i];
+      if (parts.length === 0) {
+        parts.push(line);
+        budget -= line.length;
+      } else {
+        const withNext = '\n' + line;
+        if (budget - withNext.length >= 0) {
+          parts.push(withNext);
+          budget -= withNext.length;
+        } else {
+          break;
+        }
+      }
+    }
+
+    const dropped = interactive.length - parts.length;
+    if (dropped > 0) {
+      parts.push(`\n[... ${dropped} more elements — call browser_snapshot again to see them]`);
+    }
+
+    return parts.join('');
+  }
+
+  const output = joinAndCap(lines, textLines);
+  return output || 'Page has no accessible content.';
 }
 
 function getSnapshotRefs(pageObj) {
@@ -399,14 +700,16 @@ async function act(refId, doAction, value) {
   if (isNaN(idx) || idx < 1 || idx > refs.length) {
     return `Invalid ref ID: ${refId}. Call browser_snapshot first to get valid IDs, then use the exact number.`;
   }
-  const selector = refs[idx - 1];
-  if (!selector) return `No element found for ref ID ${refId}. Call browser_snapshot again.`;
+  const loc = refs[idx - 1];
+  if (!loc) return `No element found for ref ID ${refId}. Call browser_snapshot again.`;
 
   if (doAction === 'click') {
-    await p.click(selector, { timeout: 10000 });
+    await p.getByRole(loc.role, { name: loc.name, exact: true }).click({ timeout: 10000 });
     return `Clicked [${refId}]`;
   } else if (doAction === 'type') {
-    await p.fill(selector, value || '', { timeout: 10000 });
+    const el = p.getByRole(loc.role, { name: loc.name, exact: true });
+    await el.fill(''); // clear existing content first
+    await el.type(value || '', { delay: randomDelay(), timeout: 10000 });
     return `Typed into [${refId}]`;
   }
   return `Unknown action: ${doAction}. Use 'click' or 'type'.`;
@@ -420,28 +723,37 @@ async function actAndWait(refId, doAction, value) {
   if (isNaN(idx) || idx < 1 || idx > refs.length) {
     return `Invalid ref ID: ${refId}. Call browser_snapshot first to get valid IDs.`;
   }
-  const selector = refs[idx - 1];
-  if (!selector) return `No element found for ref ID ${refId}. Call browser_snapshot again.`;
+  const loc = refs[idx - 1];
+  if (!loc) return `No element found for ref ID ${refId}. Call browser_snapshot again.`;
 
   if (doAction === 'click') {
-    const isLink = await p.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return false;
-      return el.tagName === 'A' || !!el.closest('a');
-    }, selector);
-
-    if (isLink) {
+    if (loc.role === 'link') {
+      // Click and wait for basic page navigation
       await Promise.all([
-        p.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
-        p.click(selector, { timeout: 10000 }),
+        p.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {
+          // Navigation may not fire for SPA route changes or new tabs
+        }),
+        p.getByRole('link', { name: loc.name, exact: true }).click({ timeout: 10000 }),
       ]);
+
+      // Additional SPA-friendly wait — let dynamic data finish loading
+      // networkidle waits for no network requests for ~500ms
+      // Wrapped in try/catch — background trackers/analytics may keep network busy
+      try {
+        await p.waitForLoadState('networkidle', { timeout: 5000 });
+      } catch {
+        // Network never fully idle — likely tracker polling, fine to proceed
+      }
+
       return `Clicked [${refId}] (link) and waited for page to load.`;
     }
 
-    await p.click(selector, { timeout: 10000 });
+    await p.getByRole(loc.role, { name: loc.name, exact: true }).click({ timeout: 10000 });
     return `Clicked [${refId}]`;
   } else if (doAction === 'type') {
-    await p.fill(selector, value || '', { timeout: 10000 });
+    const el = p.getByRole(loc.role, { name: loc.name, exact: true });
+    await el.fill(''); // clear existing content first
+    await el.type(value || '', { delay: randomDelay(), timeout: 10000 });
     return `Typed into [${refId}]`;
   }
   return `Unknown action: ${doAction}. Use 'click' or 'type'.`;

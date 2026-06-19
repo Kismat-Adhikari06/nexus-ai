@@ -1,5 +1,7 @@
 const { execSync } = require('child_process');
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 
 function _exec(cmd, timeout = 5000) {
   try {
@@ -107,14 +109,114 @@ function runCommand(command) {
   }
 }
 
-function launchApp(name) {
+const BROWSER_PROFILE_PATHS = {
+  brave:  { name: 'Brave',        dir: `${process.env.LOCALAPPDATA}\\BraveSoftware\\Brave-Browser\\User Data` },
+  chrome: { name: 'Chrome',       dir: `${process.env.LOCALAPPDATA}\\Google\\Chrome\\User Data` },
+  edge:   { name: 'Edge',         dir: `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\User Data` },
+  opera:  { name: 'Opera',        dir: `${process.env.APPDATA}\\Opera Software\\Opera Stable` },
+  vivaldi:{ name: 'Vivaldi',      dir: `${process.env.LOCALAPPDATA}\\Vivaldi\\User Data` },
+};
+
+const NON_PROFILE_DIRS = new Set(['System Profile', 'Guest Profile', 'Other Profile', 'Profile Picker', 'ChromeDefaultNew', 'Web Share']);
+
+function detectBrowserProfiles(browserKey) {
+  const cfg = BROWSER_PROFILE_PATHS[browserKey];
+  if (!cfg) return null;
+  const userDataDir = cfg.dir;
+  if (!fs.existsSync(userDataDir)) return null;
+  const profiles = [];
+
+  // Method 1: Read Local State JSON (canonical profile list)
+  const localStatePath = path.join(userDataDir, 'Local State');
+  if (fs.existsSync(localStatePath)) {
+    try {
+      const localState = JSON.parse(fs.readFileSync(localStatePath, 'utf-8'));
+      const infoCache = localState.profile?.info_cache;
+      if (infoCache) {
+        for (const [dir, info] of Object.entries(infoCache)) {
+          if (NON_PROFILE_DIRS.has(dir)) continue;
+          if (!info) continue;
+          profiles.push({ dir, displayName: info.name || dir });
+        }
+        if (profiles.length > 0) return profiles;
+      }
+    } catch { /* fall through to method 2 */ }
+  }
+
+  // Method 2: Scan directories with Preferences file, filtering system dirs
+  try {
+    const entries = fs.readdirSync(userDataDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (NON_PROFILE_DIRS.has(entry.name)) continue;
+      const prefsPath = path.join(userDataDir, entry.name, 'Preferences');
+      if (fs.existsSync(prefsPath)) {
+        let displayName = entry.name;
+        try {
+          const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf-8'));
+          if (prefs.profile?.name) displayName = prefs.profile.name;
+        } catch { /* use dir name */ }
+        profiles.push({ dir: entry.name, displayName });
+      }
+    }
+  } catch { /* return what we have */ }
+  return profiles.length > 0 ? profiles : null;
+}
+
+function launchApp(name, profile) {
   const apps = {
     chrome: 'chrome', firefox: 'firefox', edge: 'msedge',
+    brave: 'brave', opera: 'opera', vivaldi: 'vivaldi',
     notepad: 'notepad', calculator: 'calc',
     cmd: 'cmd', terminal: 'wt',
     whatsapp: 'https://web.whatsapp.com',
   };
-  const exe = apps[name.toLowerCase()] || name;
+  const key = name.toLowerCase();
+  const exe = apps[key] || name;
+
+  // Handle browser profile detection
+  if (BROWSER_PROFILE_PATHS[key]) {
+    const profiles = detectBrowserProfiles(key);
+    if (profiles) {
+      // Build a lookup by display name (case-insensitive) and by dir name
+      const byDisplayName = {};
+      const byDirName = {};
+      for (const p of profiles) {
+        byDisplayName[p.displayName.toLowerCase()] = p;
+        byDirName[p.dir.toLowerCase()] = p;
+      }
+
+      if (profile) {
+        const matched = byDisplayName[profile.toLowerCase()] || byDirName[profile.toLowerCase()];
+        if (matched) {
+          try {
+            execSync(`cmd /c start "" "${exe}" --profile-directory="${matched.dir}"`, { shell: true, timeout: 5000 });
+            return `Launched ${BROWSER_PROFILE_PATHS[key].name} with profile "${matched.displayName}"`;
+          } catch (e) {
+            return `Failed to launch ${name} with profile "${profile}": ${e.message}`;
+          }
+        }
+        return `Profile "${profile}" not found. Available profiles: ${profiles.map(p => p.displayName).join(', ')}`;
+      }
+
+      // No profile specified — check count
+      if (profiles.length === 1) {
+        // Only one profile, just launch it with that profile
+        try {
+          execSync(`cmd /c start "" "${exe}" --profile-directory="${profiles[0].dir}"`, { shell: true, timeout: 5000 });
+          return `Launched ${BROWSER_PROFILE_PATHS[key].name}`;
+        } catch (e) {
+          return `Failed to launch ${name}: ${e.message}`;
+        }
+      }
+
+      // Multiple profiles — ask user to pick
+      const list = profiles.map((p, i) => `${i + 1}. ${p.displayName}`).join('\n');
+      return `You have ${profiles.length} ${BROWSER_PROFILE_PATHS[key].name} profiles:\n${list}\n\nWhich one should I open? Say the name or number.`;
+    }
+  }
+
+  // Non-browser app or browser without profile detection — launch normally
   try {
     execSync(`cmd /c start "" "${exe}"`, { shell: true, timeout: 5000 });
     return `Launched ${name}`;

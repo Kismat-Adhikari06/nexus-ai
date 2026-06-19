@@ -24,7 +24,7 @@ app.get('/api/system/ram', (_, res) => res.json({ result: system.getRam() }));
 app.post('/api/system/volume', (req, res) => res.json({ result: system.setVolume(req.body.level) }));
 app.post('/api/system/notify', (req, res) => res.json({ result: system.notify(req.body.title, req.body.message) }));
 app.post('/api/system/command', (req, res) => res.json({ result: system.runCommand(req.body.command) }));
-app.post('/api/system/launch', (req, res) => res.json({ result: system.launchApp(req.body.name) }));
+app.post('/api/system/launch', (req, res) => res.json({ result: system.launchApp(req.body.name, req.body.profile) }));
 
 // File tools
 app.post('/api/files/open', (req, res) => res.json({ result: files.openFile(req.body.path) }));
@@ -350,6 +350,502 @@ app.post('/api/whatsapp/connect', async (_, res) => {
     res.json({ result: 'Connection triggered. Open /api/whatsapp/qr to see the QR code.' });
   } catch (e) {
     res.json({ result: `Connection triggered. Open /api/whatsapp/qr to scan.` });
+  }
+});
+
+// ─── Chat endpoint (autonomous agent loop) ─────────────────────────────────
+// The frontend sends conversation + API keys, and this endpoint runs an
+// autonomous loop: call LLM → parse tool calls → execute tools → loop back
+// to LLM → repeat until the LLM returns pure text (no tool calls).
+// Max 10 iterations safety cap prevents runaway loops.
+const { getDb, generateId } = require('./db');
+
+app.post('/api/chat', authenticateToken, async (req, res) => {
+  try {
+    const { messages, groqApiKey, geminiApiKey, nvidiaApiKey, nvidiaModel, openRouterApiKey, provider, localEndpoint, localModel, localApiKey, groqModel, geminiModel, openRouterModel } = req.body;
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Messages array is required' });
+    }
+
+    // Extract system prompt from messages (first message with role 'system')
+    let systemPrompt = '';
+    const conversation = messages.filter(m => {
+      if (m.role === 'system') {
+        systemPrompt = m.content;
+        return false;
+      }
+      return m.role !== 'tool';
+    });
+
+    if (!systemPrompt) {
+      return res.status(400).json({ error: 'System prompt is required as first message with role "system"' });
+    }
+
+    // ─── LLM providers ──────────────────────────────────────────────────
+    async function callGroq(msgs, apiKey) {
+      const model = groqModel || 'llama-3.3-70b-versatile';
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          ],
+          temperature: 0.7,
+          max_tokens: 2048,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`Groq API error (${r.status}): ${err}`);
+      }
+      const data = await r.json();
+      return data.choices[0].message.content;
+    }
+
+    async function callNvidia(msgs, apiKey, model) {
+      const r = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model || 'deepseek-ai/deepseek-v4-flash',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          ],
+          temperature: 0.7,
+          max_tokens: 4096,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`NVIDIA NIM API error (${r.status}): ${err}`);
+      }
+      const data = await r.json();
+      return data.choices[0].message.content;
+    }
+
+    async function callOpenRouter(msgs, apiKey) {
+      const model = openRouterModel || 'deepseek/deepseek-chat';
+      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://nexu.app',
+          'X-Title': 'Nexu',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          ],
+          temperature: 0.7,
+          max_tokens: 4096,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`OpenRouter API error (${r.status}): ${err}`);
+      }
+      const data = await r.json();
+      return data.choices[0].message.content;
+    }
+
+
+
+    async function callGemini(msgs, apiKey) {
+      const model = geminiModel || 'gemini-2.0-flash';
+      const history = msgs.slice(0, -1).map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
+      const lastMsg = msgs[msgs.length - 1];
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            ...history,
+            { role: lastMsg.role === 'assistant' ? 'model' : 'user', parts: [{ text: lastMsg.content }] },
+          ],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`Gemini API error (${r.status}): ${err}`);
+      }
+      const data = await r.json();
+      return data.candidates[0].content.parts[0].text;
+    }
+
+    // ─── Tool call parsing ──────────────────────────────────────────────
+    function parseToolCalls(text) {
+      const calls = [];
+      const parts = text.split('---TOOL---');
+      for (let i = 1; i < parts.length; i++) {
+        const part = parts[i].trim();
+        if (part.startsWith('{')) {
+          // Extract JSON object using brace matching to handle
+          // trailing text like '---' that the LLM sometimes adds.
+          let depth = 0;
+          let jsonStart = -1;
+          for (let j = 0; j < part.length; j++) {
+            if (part[j] === '{') {
+              if (depth === 0) jsonStart = j;
+              depth++;
+            } else if (part[j] === '}') {
+              depth--;
+              if (depth === 0 && jsonStart >= 0) {
+                const jsonStr = part.substring(jsonStart, j + 1);
+                try { calls.push(JSON.parse(jsonStr)); }
+                catch { /* skip invalid JSON */ }
+                jsonStart = -1;
+              }
+            }
+          }
+        }
+      }
+      return calls;
+    }
+
+    // ─── Server-side tool registry ──────────────────────────────────────
+    const TOOL_PARAM_KEYS = {
+      get_battery: [], get_cpu: [], get_ram: [],
+      set_volume: ['level'], notify: ['title', 'message'],
+      run_command: ['command'], launch_app: ['name', 'profile'],
+      lock_workstation: [], sleep: [], shutdown: [], hibernate: [],
+      open_file: ['path'], open_in_vscode: ['path'],
+      search_files: ['query', 'location'], find_file: ['filename'],
+      get_file_info: ['path'], list_directory: ['path'],
+      read_pdf: ['path'],
+      browser_launch: [], browser_close: [],
+      open_url: ['url', 'maxParagraphs', 'maxChars'],
+      search_web: ['query', 'maxParagraphs', 'maxChars'],
+      browser_navigate: ['url'], browser_snapshot: [], browser_get_text: [],
+      browser_act: ['refId', 'do', 'value'],
+      browser_act_and_wait: ['refId', 'do', 'value'],
+      browser_extract_text: ['selector'], browser_screenshot: [],
+      clipboard_read: [], clipboard_copy: ['text'],
+      screenshot: [], play_youtube: ['query'],
+      remember: ['key', 'value'], recall: ['key'],
+      list_facts: [], forget: ['key'],
+      search_memory: ['query'],
+      list_whatsapp_chats: ['limit'],
+      get_whatsapp_messages: ['chat', 'limit'],
+      send_whatsapp: ['to', 'message'],
+      get_unread_whatsapp: [],
+      whatsapp_status: [],
+      whatsapp_qr: [],
+      whatsapp_clear_session: [],
+      whatsapp_block: ['contact'],
+      whatsapp_unblock: ['contact'],
+      whatsapp_delete_chat: ['contact'],
+      whatsapp_archive: ['contact'],
+      whatsapp_unarchive: ['contact'],
+      whatsapp_mute: ['contact', 'duration'],
+      whatsapp_unmute: ['contact'],
+      whatsapp_pin: ['contact'],
+      whatsapp_unpin: ['contact'],
+      whatsapp_mark_read: ['contact'],
+      whatsapp_report: ['contact'],
+    };
+
+    const toolRegistry = {
+      // System
+      get_battery: system.getBattery, get_cpu: system.getCpu,
+      get_ram: system.getRam, set_volume: (l) => system.setVolume(l),
+      notify: (t, m) => system.notify(t, m),
+      run_command: (c) => system.runCommand(c),
+      launch_app: (n, p) => system.launchApp(n, p),
+      lock_workstation: system.lockWorkstation, sleep: system.sleep,
+      shutdown: system.shutdown, hibernate: system.hibernate,
+      // Files
+      open_file: (p) => files.openFile(p),
+      open_in_vscode: (p) => files.openInVscode(p),
+      search_files: (q, l) => files.searchFiles(q, l),
+      find_file: (f) => files.findFile(f),
+      get_file_info: (p) => files.getFileInfo(p),
+      list_directory: (p) => files.listDirectory(p),
+      // PDF
+      read_pdf: (p) => pdf.readPdf(p),
+      // Browser
+      browser_launch: browser.launch, browser_close: browser.close,
+      open_url: (u, mp, mc) => browser.openUrl(u, mp, mc),
+      search_web: (q, mp, mc) => browser.searchWeb(q, mp, mc),
+      browser_navigate: (u) => browser.navigate(u),
+      browser_snapshot: browser.snapshot, browser_get_text: browser.getPageText,
+      browser_act: (r, d, v) => browser.act(r, d, v),
+      browser_act_and_wait: (r, d, v) => browser.actAndWait(r, d, v),
+      browser_extract_text: (s) => browser.extractText(s),
+      browser_screenshot: browser.screenshot,
+      // Extra
+      clipboard_read: extra.clipboardRead,
+      clipboard_copy: (t) => extra.clipboardCopy(t),
+      screenshot: extra.screenshot,
+      play_youtube: (q) => extra.playYoutube(q),
+      // Memory tools (direct DB access)
+      remember: (key, value) => {
+        const db = getDb();
+        const k = String(key).toLowerCase();
+        const existing = db.prepare('SELECT id FROM facts WHERE user_id = ? AND key = ?').get(req.user.userId, k);
+        if (existing) {
+          db.prepare('UPDATE facts SET value = ?, category = ?, timestamp = datetime("now") WHERE id = ?').run(String(value), 'user_chat', existing.id);
+        } else {
+          db.prepare('INSERT INTO facts (id, user_id, key, value) VALUES (?, ?, ?, ?)').run(generateId(), req.user.userId, k, String(value));
+        }
+        return `Remembered: ${key} = ${value}`;
+      },
+      recall: (key) => {
+        const db = getDb();
+        const fact = db.prepare('SELECT value FROM facts WHERE user_id = ? AND key = ?').get(req.user.userId, String(key).toLowerCase());
+        return fact ? String(fact.value) : `I don't have anything saved for '${key}'`;
+      },
+      list_facts: () => {
+        const db = getDb();
+        const facts = db.prepare('SELECT key, value FROM facts WHERE user_id = ? AND status = "saved"').all(req.user.userId);
+        if (facts.length === 0) return 'No saved facts yet.';
+        return facts.map(f => `${f.key}: ${f.value}`).join('\n');
+      },
+      forget: (key) => {
+        const db = getDb();
+        db.prepare('DELETE FROM facts WHERE user_id = ? AND key = ?').run(req.user.userId, String(key).toLowerCase());
+        return `Forgot '${key}'`;
+      },
+      search_memory: (query) => {
+        const db = getDb();
+        const limit = 3;
+        const results = db.prepare(
+          'SELECT role, content, timestamp FROM history WHERE user_id = ? AND content LIKE ? ORDER BY timestamp DESC LIMIT ?'
+        ).all(req.user.userId, `%${query}%`, limit).reverse();
+        if (results.length === 0) return `No past conversations found matching '${query}'.`;
+        return results.map(r => `[${r.timestamp}] ${r.role}: ${String(r.content).substring(0, 200)}`).join('\n');
+      },
+      // WhatsApp tools
+      list_whatsapp_chats: (limit) => whatsapp.listChats(limit != null ? Number(limit) : 10),
+      get_whatsapp_messages: (chat, limit) => whatsapp.getMessages(String(chat), limit != null ? Number(limit) : 10),
+      send_whatsapp: (to, message) => whatsapp.sendMessage(String(to), String(message)),
+      get_unread_whatsapp: () => whatsapp.getUnreadMessages(),
+      whatsapp_status: () => whatsapp.getStatus(),
+      whatsapp_qr: () => {
+        const qr = whatsapp.getQR();
+        if (qr.qrImage) {
+          return '📱 Scan the QR code at http://localhost:3001/api/whatsapp/qr to link WhatsApp.';
+        }
+        return `No QR code available. Status: ${qr.connected ? 'Already connected' : 'Not connected yet.'}`;
+      },
+      whatsapp_clear_session: () => whatsapp.clearSession(),
+      whatsapp_block: (contact) => whatsapp.blockContact(String(contact)),
+      whatsapp_unblock: (contact) => whatsapp.unblockContact(String(contact)),
+      whatsapp_delete_chat: (contact) => whatsapp.deleteChat(String(contact)),
+      whatsapp_archive: (contact) => whatsapp.archiveChat(String(contact)),
+      whatsapp_unarchive: (contact) => whatsapp.unarchiveChat(String(contact)),
+      whatsapp_mute: (contact, duration) => whatsapp.muteChat(String(contact), String(duration || 'always')),
+      whatsapp_unmute: (contact) => whatsapp.unmuteChat(String(contact)),
+      whatsapp_pin: (contact) => whatsapp.pinChat(String(contact)),
+      whatsapp_unpin: (contact) => whatsapp.unpinChat(String(contact)),
+      whatsapp_mark_read: (contact) => whatsapp.markAsRead(String(contact)),
+      whatsapp_report: (contact) => whatsapp.reportContact(String(contact)),
+    };
+
+    async function executeTool(call) {
+      const { action, ...params } = call;
+      const fn = toolRegistry[action];
+      if (!fn) return `Unknown tool: ${action}`;
+      try {
+        const keys = TOOL_PARAM_KEYS[action] || Object.keys(params);
+        const args = keys.map(k => params[k]);
+        const result = await Promise.resolve(fn(...args));
+        return String(result);
+      } catch (e) {
+        return `Error executing ${action}: ${e.message}`;
+      }
+    }
+
+    // ─── WhatsApp intent detection ──────────────────────────────────────
+    // Only use regex shortcut for phone NUMBER patterns (where it's reliable).
+    // Contact NAMES fall through to the LLM auto-loop which is smarter about
+    // resolving names, listing chats, and handling errors gracefully.
+    const lastUserMsg = conversation[conversation.length - 1]?.content?.trim() || '';
+    // Remove filler words that would confuse pattern matching
+    const cleanMsg = lastUserMsg
+      .replace(/^(hey|hi|yo|ok|okay|can you|could you|please|i need you to|i want you to)\s+/i, '')
+      .replace(/\s+(please|thanks|thank you|for me|in whatsapp)$/i, '');
+
+    // Only match when the target is clearly a phone number (has 7+ digits)
+    // Contact names are left for the LLM auto-loop to handle
+    const NUMBER_PATTERNS = [
+      // "text/number/send the number X saying Y" where X has digits
+      { re: /^(?:text|message|send)\s+(?:the\s+(?:contact|number)\s+)?(.+?)\s+(?:saying|that)\s+(.+)$/i },
+      // "text X Y" where X has digits
+      { re: /^text\s+(?:the\s+(?:contact|number)\s+)?([a-zA-Z0-9_ .+\-]+)\s+(.+)$/i },
+    ];
+
+    let waMatch = null;
+    for (const { re } of NUMBER_PATTERNS) {
+      const m = cleanMsg.match(re);
+      if (m) {
+        const to = m[1].trim();
+        const digits = to.replace(/[^0-9]/g, '');
+        // Only match if the target is a phone number (has 7+ digits)
+        // This excludes contact names like "Batman" which have no digits
+        if (digits.length >= 7) {
+          waMatch = { to, message: m[2].trim() };
+          break;
+        }
+      }
+    }
+
+    if (waMatch) {
+      console.log(`📱 WhatsApp number shortcut: to="${waMatch.to}" (${waMatch.to.replace(/[^0-9]/g,'').length} digits)`);
+      const result = await whatsapp.sendMessage(waMatch.to, waMatch.message);
+      return res.json({
+        result: {
+          content: result,
+          toolCalls: [{ action: 'send_whatsapp', params: waMatch, result }],
+        },
+      });
+    }
+
+    // ─── Auto-loop ──────────────────────────────────────────────────────
+    let currentMessages = [...conversation];
+    const allToolCalls = [];
+
+    // Track the previous iteration's tool calls so we can detect if the LLM
+    // gets stuck calling the same tool repeatedly across consecutive iterations.
+    let lastIterationCalls = null;
+
+    // Determine the LLM provider once before the loop — all iterations
+    // within a single request use the same provider. On 'auto', try Groq
+    // first, fall back to Gemini, then OpenRouter, then NVIDIA, then local.
+    let useGemini = provider === 'gemini';
+    let useGroq = provider === 'groq';
+    let useOpenRouter = provider === 'openrouter';
+    let useNvidia = provider === 'nvidia';
+    let useLocal = provider === 'local';
+    if (provider === 'auto') {
+      useGroq = !!groqApiKey;
+      useGemini = !useGroq && !!geminiApiKey;
+      useOpenRouter = !useGroq && !useGemini && !!openRouterApiKey;
+      useNvidia = !useGroq && !useGemini && !useOpenRouter && !!nvidiaApiKey;
+      useLocal = !useGroq && !useGemini && !useOpenRouter && !useNvidia;
+    }
+    if (!useGroq && !useGemini && !useOpenRouter && !useNvidia && !useLocal) {
+      throw new Error('No API key configured for the selected provider');
+    }
+
+    async function callLocal(msgs, endpoint, model, key) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (key) headers['Authorization'] = `Bearer ${key}`;
+      const r = await fetch(endpoint || 'http://localhost:1234/v1/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: model || 'local-model',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          ],
+          temperature: 0.7,
+          max_tokens: 4096,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`Local AI error (${r.status}): ${err}`);
+      }
+      const data = await r.json();
+      return data.choices[0].message.content;
+    }
+
+    for (let iteration = 0; iteration < 10; iteration++) {
+      let rawResponse;
+
+      if (useGemini) {
+        rawResponse = await callGemini(currentMessages, geminiApiKey);
+      } else if (useOpenRouter) {
+        rawResponse = await callOpenRouter(currentMessages, openRouterApiKey);
+      } else if (useNvidia) {
+        rawResponse = await callNvidia(currentMessages, nvidiaApiKey, nvidiaModel);
+      } else if (useLocal) {
+        rawResponse = await callLocal(currentMessages, localEndpoint, localModel, localApiKey);
+      } else {
+        rawResponse = await callGroq(currentMessages, groqApiKey);
+      }
+
+      const toolCalls = parseToolCalls(rawResponse);
+      const text = rawResponse.split('---TOOL---')[0].trim();
+
+      if (toolCalls.length === 0) {
+        // Pure text — done
+        return res.json({
+          result: {
+            content: text || rawResponse.trim(),
+            toolCalls: allToolCalls,
+          },
+        });
+      }
+
+      // Deduplicate tool calls within this iteration
+      const seenCalls = new Set();
+      const uniqueCalls = [];
+      for (const call of toolCalls) {
+        const key = JSON.stringify(call);
+        if (!seenCalls.has(key)) {
+          seenCalls.add(key);
+          uniqueCalls.push(call);
+        }
+      }
+
+      // Track the call keys for this iteration (used to detect consecutive dupes)
+      const currentIterationKeys = uniqueCalls.map(c => JSON.stringify(c));
+
+      // If this iteration's tool calls are IDENTICAL to the previous iteration's,
+      // the LLM is stuck in a loop (e.g. calling play_youtube with the same query
+      // over and over). Break out and return just the text portion.
+      // Only checks CONSECUTIVE iterations, so snapshot -> act -> snapshot works fine.
+      if (lastIterationCalls !== null &&
+          currentIterationKeys.length === lastIterationCalls.length &&
+          currentIterationKeys.every((key, i) => key === lastIterationCalls[i])) {
+        return res.json({
+          result: {
+            content: text || 'Done.',
+            toolCalls: allToolCalls,
+          },
+        });
+      }
+      lastIterationCalls = currentIterationKeys;
+
+      // Execute each unique tool call
+      for (const call of uniqueCalls) {
+        const result = await executeTool(call);
+        allToolCalls.push({ action: call.action, params: { ...call }, result });
+        currentMessages.push({
+          role: 'user',
+          content: `[Tool: ${call.action}]
+${result}`,
+        });
+      }
+
+      // Loop back to LLM with tool results in context
+    }
+
+    // Max iterations reached
+    return res.json({
+      result: {
+        content: 'Reached maximum tool execution iterations. Please try a simpler request.',
+        toolCalls: allToolCalls,
+      },
+    });
+
+  } catch (e) {
+    console.error('Chat error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

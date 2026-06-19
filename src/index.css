@@ -1,21 +1,57 @@
 @import "tailwindcss";
 
 @theme {
-  --color-nexu-bg: #0f0f13;
-  --color-nexu-surface: #1a1a23;
-  --color-nexu-surface-2: #24243a;
-  --color-nexu-border: #2a2a3e;
-  --color-nexu-primary: #7c3aed;
-  --color-nexu-primary-hover: #8b5cf6;
-  --color-nexu-primary-dim: rgba(124, 58, 237, 0.15);
-  --color-nexu-text: #e4e4ee;
-  --color-nexu-text-dim: #8b8b9e;
-  --color-nexu-text-muted: #5c5c72;
+  --color-nexu-bg: var(--nexu-bg);
+  --color-nexu-surface: var(--nexu-surface);
+  --color-nexu-surface-2: var(--nexu-surface-2);
+  --color-nexu-border: var(--nexu-border);
+  --color-nexu-primary: var(--nexu-primary);
+  --color-nexu-primary-hover: var(--nexu-primary-hover);
+  --color-nexu-primary-dim: var(--nexu-primary-dim);
+  --color-nexu-text: var(--nexu-text);
+  --color-nexu-text-dim: var(--nexu-text-dim);
+  --color-nexu-text-muted: var(--nexu-text-muted);
   --color-nexu-accent-green: #22c55e;
   --color-nexu-accent-yellow: #eab308;
   --color-nexu-accent-red: #ef4444;
   --color-nexu-accent-blue: #3b82f6;
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ─── Dark theme (default) ──────────────────────────────────────────────────
+   Clean minimal slate palette with indigo accent */
+:root,
+[data-theme="dark"] {
+  --nexu-bg: #0b1120;
+  --nexu-surface: #0f172a;
+  --nexu-surface-2: #1e293b;
+  --nexu-border: #334155;
+  --nexu-primary: #6366f1;
+  --nexu-primary-hover: #818cf8;
+  --nexu-primary-dim: rgba(99, 102, 241, 0.12);
+  --nexu-text: #f1f5f9;
+  --nexu-text-dim: #94a3b8;
+  --nexu-text-muted: #64748b;
+}
+
+/* ─── Light theme ───────────────────────────────────────────────────────────
+   Clean white/slate-50 with the same indigo accent */
+[data-theme="light"] {
+  --nexu-bg: #f8fafc;
+  --nexu-surface: #ffffff;
+  --nexu-surface-2: #f1f5f9;
+  --nexu-border: #e2e8f0;
+  --nexu-primary: #6366f1;
+  --nexu-primary-hover: #4f46e5;
+  --nexu-primary-dim: rgba(99, 102, 241, 0.08);
+  --nexu-text: #0f172a;
+  --nexu-text-dim: #475569;
+  --nexu-text-muted: #94a3b8;
+}
+
+/* ─── Theme transition ───────────────────────────────────────────────────── */
+* {
+  transition: background-color 0.2s ease, border-color 0.15s ease, color 0.2s ease;
 }
 
 body {

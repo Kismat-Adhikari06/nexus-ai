@@ -23,8 +23,10 @@ System Tools:
     {"action": "notify", "title": "Title", "message": "Body"}
   run_command — Run a shell command
     {"action": "run_command", "command": "echo hello"}
-  launch_app — Launch an application (chrome, notepad, calculator, cmd, terminal, etc.)
+  launch_app — Launch an application (brave, chrome, firefox, edge, notepad, calculator, cmd, terminal, etc.)
+    For browsers with multiple profiles, it auto-detects and lists them. Then call again with the profile name.
     {"action": "launch_app", "name": "chrome"}
+    {"action": "launch_app", "name": "brave", "profile": "Profile 1"}
 
 File Tools:
   open_file — Open a file with its default app
@@ -88,14 +90,19 @@ Memory Tools:
     {"action": "search_memory", "query": "project name"}
 
 WhatsApp Tools (Baileys — requires QR scan on first use):
+  **ACTION PLAN for "text/send message to X":**
+    1. Call send_whatsapp directly — put the contact name or number in "to" and message in "message".
+    2. If that fails because the contact isn't found, call list_whatsapp_chats to find the right name.
+    3. NEVER describe what you're about to do. NEVER ask permission. Just output ---TOOL--- and the JSON.
+    4. IMPORTANT: Use the EXACT name or number the user gave you. Do NOT make up example numbers.
+
   list_whatsapp_chats — List recent WhatsApp conversations
     {"action": "list_whatsapp_chats", "limit": 10}
   get_whatsapp_messages — Get latest messages from a specific contact/chat
     {"action": "get_whatsapp_messages", "chat": "contact name or number", "limit": 10}
-  send_whatsapp — Send a WhatsApp message to a contact or phone number
-    {"action": "send_whatsapp", "to": "contact name or number", "message": "Hello!"}
-  send_whatsapp_number — Send a WhatsApp message by phone number
-    {"action": "send_whatsapp_number", "phoneNumber": "+1234567890", "message": "Hello!"}
+  send_whatsapp — Send a WhatsApp message to a contact name OR phone number. Works with BOTH.
+    Examples: send to contact: {"action": "send_whatsapp", "to": "Mom", "message": "Hi!"}
+    Examples: send to number: {"action": "send_whatsapp", "to": "+1234567890", "message": "Hi!"}
   get_unread_whatsapp — Get unread WhatsApp messages
     {"action": "get_unread_whatsapp"}
   whatsapp_status — Check WhatsApp connection status
@@ -157,7 +164,9 @@ Rules:
 - **Respect quantity limits with maxParagraphs**: If the user asks for a specific amount of content ("first paragraph", "second paragraph", "give me 2 paragraphs", "first 3 paragraphs", etc.), use the maxParagraphs parameter on open_url to request exactly that many paragraphs. For example, if the user says "show me the first paragraph", use maxParagraphs: 1. If they say "give me 2 paragraphs", use maxParagraphs: 2. **Never** request the default (5 paragraphs) when the user specifies a quantity — always pass maxParagraphs to match their request exactly.
 - Use ---TOOL--- followed by the tool JSON on a new line.`;
 
-const SYSTEM_PROMPT = `You are Nexu, a friendly AI assistant on Windows. Be concise, helpful, and direct.
+const SYSTEM_PROMPT = `You are Nexu, an autonomous AI assistant on Windows. Be concise, helpful, and direct.
+
+You are an autonomous agent. When a user asks you to interact with a webpage, do not stop to ask for permission. Take initiative: immediately call browser_snapshot on your own to find the element IDs, and then call browser_act to fill fields or click buttons. Only reply with standard text when the entire task is complete.
 
 ${TOOL_DESCRIPTIONS}
 
@@ -176,6 +185,7 @@ interface AIProvider {
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const groqProvider: AIProvider = {
   name: 'groq',
@@ -248,12 +258,125 @@ const geminiProvider: AIProvider = {
   },
 };
 
-const providers: Record<string, AIProvider> = { groq: groqProvider, gemini: geminiProvider };
-const PROVIDER_ORDER = ['groq', 'gemini'] as const;
+// ─── NVIDIA NIM provider ───────────────────────────────────────────────────
+// OpenAI-compatible API hosted at https://integrate.api.nvidia.com/v1
+// Supports a wide range of models — see https://build.nvidia.com/explore/discover
+const NVIDIA_BASE = 'https://integrate.api.nvidia.com/v1';
+
+const nvidiaProvider: AIProvider = {
+  name: 'nvidia',
+  call: async (messages, apiKey, systemPrompt) => {
+    const model = localStorage.getItem('nexu:nvidiaModel') || 'deepseek-ai/deepseek-v4-flash';
+    const res = await fetch(`${NVIDIA_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`NVIDIA NIM API error (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    return data.choices[0].message.content;
+  },
+};
+
+// ─── Local / OpenAI-compatible provider ────────────────────────────────────
+// Works with LM Studio (http://localhost:1234), Ollama (http://localhost:11434/v1),
+// text-generation-webui, vLLM, or any OpenAI-compatible local server.
+const localProvider: AIProvider = {
+  name: 'local',
+  call: async (messages, _apiKey, systemPrompt) => {
+    const endpoint = localStorage.getItem('nexu:localEndpoint') || 'http://localhost:1234/v1/chat/completions';
+    const model = localStorage.getItem('nexu:localModel') || 'local-model';
+    const localApiKey = localStorage.getItem('nexu:localApiKey') || '';
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (localApiKey) headers['Authorization'] = `Bearer ${localApiKey}`;
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Local AI error (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    return data.choices[0].message.content;
+  },
+};
+
+const openRouterProvider: AIProvider = {
+  name: 'openrouter',
+  call: async (messages, apiKey, systemPrompt) => {
+    const res = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        // OpenRouter-specific headers for model routing and credits tracking
+        'HTTP-Referer': window.location.origin,
+        'X-Title': 'Nexu',
+      },
+      body: JSON.stringify({
+        model: 'deepseek/deepseek-chat',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`OpenRouter API error (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    return data.choices[0].message.content;
+  },
+};
+
+const providers: Record<string, AIProvider> = { groq: groqProvider, gemini: geminiProvider, nvidia: nvidiaProvider, openrouter: openRouterProvider, local: localProvider };
+const PROVIDER_ORDER = ['groq', 'gemini', 'openrouter', 'nvidia', 'local'] as const;
+
+/** Build the rendered system prompt with user facts and history injected. */
+export function buildSystemPrompt(facts: string, history: string): string {
+  return SYSTEM_PROMPT
+    .replace('{FACTS}', facts || 'None yet')
+    .replace('{HISTORY}', history || 'None yet');
+}
 
 export async function getAIResponse(
   messages: Message[],
-  settings: { groqApiKey: string; geminiApiKey: string; provider: string },
+  settings: { groqApiKey: string; geminiApiKey: string; nvidiaApiKey?: string; nvidiaModel?: string; openRouterApiKey?: string; localEndpoint?: string; localModel?: string; localApiKey?: string; groqModel?: string; geminiModel?: string; openRouterModel?: string; provider: string },
   facts: string,
   history: string
 ): Promise<string> {
@@ -271,20 +394,40 @@ export async function getAIResponse(
     .replace('{FACTS}', facts || 'None yet')
     .replace('{HISTORY}', history || 'None yet');
 
+  // Persist local settings to localStorage so the provider can read them
+  if (settings.localEndpoint) localStorage.setItem('nexu:localEndpoint', settings.localEndpoint);
+  if (settings.localModel) localStorage.setItem('nexu:localModel', settings.localModel);
+  if (settings.localApiKey) localStorage.setItem('nexu:localApiKey', settings.localApiKey);
+
   let lastError: Error | null = null;
+
+  // Persist model selections to localStorage so server-side can read them
+  if (settings.groqModel) localStorage.setItem('nexu:groqModel', settings.groqModel);
+  if (settings.geminiModel) localStorage.setItem('nexu:geminiModel', settings.geminiModel);
+  if (settings.openRouterModel) localStorage.setItem('nexu:openRouterModel', settings.openRouterModel);
 
   if (settings.provider !== 'auto') {
     const provider = providers[settings.provider];
     if (!provider) throw new Error(`Unknown provider: ${settings.provider}`);
-    const key = settings.provider === 'groq' ? settings.groqApiKey : settings.geminiApiKey;
-    if (!key) throw new Error(`No API key set for ${settings.provider}`);
+    let key: string;
+    if (settings.provider === 'groq') key = settings.groqApiKey;
+    else if (settings.provider === 'gemini') key = settings.geminiApiKey;
+    else if (settings.provider === 'nvidia') key = settings.nvidiaApiKey || '';
+    else if (settings.provider === 'openrouter') key = settings.openRouterApiKey || '';
+    else key = settings.localApiKey || '';
+    if (!key && settings.provider !== 'local') throw new Error(`No API key set for ${settings.provider}`);
     return await provider.call(conversation, key, systemPrompt);
   }
 
   for (const name of PROVIDER_ORDER) {
     const provider = providers[name];
-    const key = name === 'groq' ? settings.groqApiKey : settings.geminiApiKey;
-    if (!key) continue;
+    let key: string;
+    if (name === 'groq') key = settings.groqApiKey;
+    else if (name === 'gemini') key = settings.geminiApiKey;
+    else if (name === 'nvidia') key = settings.nvidiaApiKey || '';
+    else if (name === 'openrouter') key = settings.openRouterApiKey || '';
+    else key = settings.localApiKey || '';
+    if (!key && name !== 'local') continue;
 
     try {
       return await provider.call(conversation, key, systemPrompt);
@@ -313,9 +456,24 @@ export function parseToolCalls(text: string): { action: string; [key: string]: u
   for (let i = 1; i < parts.length; i++) {
     const part = parts[i].trim();
     if (part.startsWith('{')) {
-      try {
-        calls.push(JSON.parse(part));
-      } catch { /* skip invalid JSON */ }
+      // Extract JSON object using brace matching to handle
+      // trailing text like '---' that the LLM sometimes adds.
+      let depth = 0;
+      let jsonStart = -1;
+      for (let j = 0; j < part.length; j++) {
+        if (part[j] === '{') {
+          if (depth === 0) jsonStart = j;
+          depth++;
+        } else if (part[j] === '}') {
+          depth--;
+          if (depth === 0 && jsonStart >= 0) {
+            const jsonStr = part.substring(jsonStart, j + 1);
+            try { calls.push(JSON.parse(jsonStr)); }
+            catch { /* skip invalid JSON */ }
+            jsonStart = -1;
+          }
+        }
+      }
     }
   }
   return calls;

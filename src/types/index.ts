@@ -20,7 +20,7 @@ export interface Settings {
   voiceInput: boolean;
   voiceOutput: boolean;
   theme: 'dark' | 'light';
-  provider: 'groq' | 'gemini' | 'openrouter';
+  provider: 'groq' | 'gemini' | 'openrouter' | 'local' | 'nvidia';
 }
 
 export interface User {

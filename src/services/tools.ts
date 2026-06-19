@@ -35,7 +35,7 @@ export function getRam() { return callBackend('/api/system/ram'); }
 export function setVolume(level: number) { return callBackend('/api/system/volume', { level }); }
 export function notify(title: string, message: string) { return callBackend('/api/system/notify', { title, message }); }
 export function runCommand(command: string) { return callBackend('/api/system/command', { command }); }
-export function launchApp(name: string) { return callBackend('/api/system/launch', { name }); }
+export function launchApp(name: string, profile?: string) { return callBackend('/api/system/launch', { name, profile }); }
 export function lockWorkstation() { return callBackend('/api/system/lock'); }
 export function sleep() { return callBackend('/api/system/sleep'); }
 export function shutdownPC() { return callBackend('/api/system/shutdown'); }
@@ -49,8 +49,8 @@ export function findFile(filename: string) { return callBackend('/api/files/find
 export function getFileInfo(path: string) { return callBackend('/api/files/info', { path }); }
 export function listDirectory(path?: string) { return callBackend('/api/files/list', { path }); }
 // Browser tools (Playwright)
-export function browserLaunch() { return callBackend('/api/browser/launch'); }
-export function browserClose() { return callBackend('/api/browser/close'); }
+export function browserLaunch() { return callBackend('/api/browser/launch', {}); }
+export function browserClose() { return callBackend('/api/browser/close', {}); }
 export function openUrl(url: string, maxParagraphs?: number, maxChars?: number) {
   const body: Record<string, unknown> = { url };
   if (maxParagraphs !== undefined) body.maxParagraphs = maxParagraphs;
@@ -64,12 +64,12 @@ export function searchWeb(query: string, maxParagraphs?: number, maxChars?: numb
   return callBackend('/api/browser/search', body);
 }
 export function browserNavigate(url: string) { return callBackend('/api/browser/navigate', { url }); }
-export function browserSnapshot() { return callBackend('/api/browser/snapshot'); }
+export function browserSnapshot() { return callBackend('/api/browser/snapshot', {}); }
 export function browserAct(refId: string, doAction: string, value?: string) { return callBackend('/api/browser/act', { refId, do: doAction, value }); }
 export function browserActAndWait(refId: string, doAction: string, value?: string) { return callBackend('/api/browser/actAndWait', { refId, do: doAction, value }); }
 export function browserExtractText(selector: string) { return callBackend('/api/browser/extractText', { selector }); }
-export function browserGetText() { return callBackend('/api/browser/getText'); }
-export function browserScreenshot() { return callBackend('/api/browser/screenshot'); }
+export function browserGetText() { return callBackend('/api/browser/getText', {}); }
+export function browserScreenshot() { return callBackend('/api/browser/screenshot', {}); }
 
 // Extra tools
 export function clipboardRead() {
@@ -85,7 +85,7 @@ export function clipboardCopy(text: string) {
   }
   return callBackend('/api/extra/clipboard-copy', { text });
 }
-export function screenshot() { return callBackend('/api/extra/screenshot'); }
+export function screenshot() { return callBackend('/api/extra/screenshot', {}); }
 export function playYoutube(query: string) { return callBackend('/api/extra/youtube', { query: stripFiller(query) }); }
 
 // PDF tools
@@ -99,7 +99,7 @@ export function sendWhatsAppNumber(phoneNumber: string, message: string) { retur
 export function getUnreadWhatsApp() { return callBackend('/api/whatsapp/unread'); }
 export function whatsAppStatus() { return callBackend('/api/whatsapp/status'); }
 export function getWhatsAppQR() { return callBackend('/api/whatsapp/qr-data'); }
-export function clearWhatsAppSession() { return callBackend('/api/whatsapp/clear'); }
+export function clearWhatsAppSession() { return callBackend('/api/whatsapp/clear', {}); }
 export function blockWhatsAppContact(contact: string) { return callBackend('/api/whatsapp/block', { contact }); }
 export function unblockWhatsAppContact(contact: string) { return callBackend('/api/whatsapp/unblock', { contact }); }
 export function deleteWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/delete-chat', { contact }); }

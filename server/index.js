@@ -505,7 +505,7 @@ app.post('/api/gmail/generate-reply', async (req, res) => {
     if (!emailContent) return res.json({ result: { error: 'Email content is required' } });
     if (!apiKey) return res.json({ result: { error: 'API key is required' } });
 
-    const prompt = `Write a professional, helpful reply to this email. Be concise and natural.\n\nOnly return the reply text — no explanations, no opening lines like "Here's your reply:".\n\nEmail to reply to:\n---\n${emailContent.substring(0, 3000)}\n---`;
+    const prompt = `You are replying to this email as the person who received it. Write the reply from YOUR perspective — you are the recipient writing back, NOT the original sender.\n\nRules:\n- Do NOT impersonate the company, service, or person who sent the original email\n- Do NOT include a subject line — it will be added separately\n- Do NOT start with \"Subject:\" or include any subject text in your reply\n- Just return the plain body text of your reply, nothing else\n- Be natural and concise\n\nEmail you are replying to:\n---\n${emailContent.substring(0, 3000)}\n---`;
 
     let reply = '';
 

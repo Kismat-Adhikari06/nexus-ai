@@ -7,6 +7,7 @@ const browser = require('./tools/browser');
 const extra = require('./tools/extra');
 const pdf = require('./tools/pdf');
 const whatsapp = require('./tools/whatsapp');
+const gmail = require('./tools/gmail');
 const storageRouter = require('./routes/storage');
 
 const app = express();
@@ -341,6 +342,77 @@ app.post('/api/whatsapp/mark-read', async (req, res) => {
 app.post('/api/whatsapp/report', async (req, res) => {
   try { res.json({ result: await whatsapp.reportContact(req.body.contact) }); }
   catch (e) { res.json({ result: `Error: ${e.message}` }); }
+});
+
+// ─── Gmail OAuth2 routes ────────────────────────────────────────────────────
+
+// Generate Google OAuth URL
+app.post('/api/gmail/auth-url', async (req, res) => {
+  try {
+    const { clientId, clientSecret } = req.body;
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({ error: 'Google Client ID and Client Secret are required' });
+    }
+    const url = gmail.getAuthUrl(clientId, clientSecret);
+    res.json({ result: url });
+  } catch (e) {
+    res.json({ result: { error: e.message } });
+  }
+});
+
+// OAuth callback — Google redirects here after user authorizes
+app.get('/api/gmail/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>❌ Authorization failed</h2><p>No authorization code received from Google.</p></body></html>');
+  }
+  try {
+    await gmail.handleCallback(code);
+    // Redirect to a nice success page in the frontend
+    res.send(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Gmail Connected</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #0b1120; color: #f1f5f9; text-align: center; padding: 20px; }
+  .card { max-width: 400px; }
+  .icon { font-size: 64px; margin-bottom: 16px; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  p { color: #94a3b8; margin-bottom: 24px; font-size: 14px; line-height: 1.5; }
+  a { display: inline-block; padding: 10px 24px; background: #6366f1; color: white; border-radius: 8px; text-decoration: none; font-size: 14px; }
+  a:hover { background: #818cf8; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✅</div>
+    <h1>Gmail Connected!</h1>
+    <p>Nexu is now linked to your Gmail account. You can close this tab and return to Nexu.</p>
+    <a href="http://localhost:5173" target="_blank">Return to Nexu</a>
+  </div>
+</body>
+</html>`);
+  } catch (e) {
+    res.send(
+      `<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#0b1120;color:#f1f5f9"><h2>❌ Gmail connection failed</h2><p style="color:#94a3b8">${e.message}</p><p style="margin-top:16px;color:#64748b;font-size:13px">Close this tab and try connecting again in Nexu.</p></body></html>`
+    );
+  }
+});
+
+// Gmail connection status
+app.get('/api/gmail/status', (_, res) => res.json({ result: gmail.getStatus() }));
+
+// Gmail auth state (for polling)
+app.get('/api/gmail/auth-state', (_, res) => res.json({ result: gmail.getAuthState() }));
+
+// Disconnect Gmail
+app.post('/api/gmail/disconnect', async (_, res) => {
+  try {
+    const result = await gmail.disconnect();
+    res.json({ result });
+  } catch (e) {
+    res.json({ result: `Error: ${e.message}` });
+  }
 });
 
 // WhatsApp connect (triggers connection + QR code generation)
@@ -899,7 +971,7 @@ app.use((err, _req, res, _next) => {
 const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, () => {
   console.log(`Nexu server running on http://localhost:${PORT}`);
-  console.log('Tools available: system, files, browser, pdf, extra, whatsapp, auth');
+  console.log('Tools available: system, files, browser, pdf, extra, whatsapp, gmail, auth');
 });
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

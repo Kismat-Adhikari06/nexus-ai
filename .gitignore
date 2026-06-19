@@ -42,3 +42,5 @@ server_err*.txt
 server_out*.txt
 server_error.txt
 test-memory.txt
+server/data/nexu.db*
+client_secret_*.json

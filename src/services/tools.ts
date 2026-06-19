@@ -111,3 +111,11 @@ export function pinWhatsAppChat(contact: string) { return callBackend('/api/what
 export function unpinWhatsAppChat(contact: string) { return callBackend('/api/whatsapp/unpin', { contact }); }
 export function markWhatsAppRead(contact: string) { return callBackend('/api/whatsapp/mark-read', { contact }); }
 export function reportWhatsAppContact(contact: string) { return callBackend('/api/whatsapp/report', { contact }); }
+
+// ─── Gmail tools ────────────────────────────────────────────────────────────
+export function getGmailAuthUrl(clientId: string, clientSecret: string) {
+  return callBackend('/api/gmail/auth-url', { clientId, clientSecret });
+}
+export function gmailStatus() { return callBackend('/api/gmail/status'); }
+export function getGmailAuthState() { return callBackend('/api/gmail/auth-state'); }
+export function disconnectGmail() { return callBackend('/api/gmail/disconnect', {}); }

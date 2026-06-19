@@ -60,6 +60,8 @@ interface SettingsProps {
   localEndpoint: string;
   localModel: string;
   localApiKey: string;
+  googleClientId: string;
+  googleClientSecret: string;
   onGroqKeyChange: (key: string) => void;
   onGeminiKeyChange: (key: string) => void;
   onNvidiaKeyChange: (key: string) => void;
@@ -73,6 +75,8 @@ interface SettingsProps {
   onLocalEndpointChange: (url: string) => void;
   onLocalModelChange: (model: string) => void;
   onLocalApiKeyChange: (key: string) => void;
+  onGoogleClientIdChange: (id: string) => void;
+  onGoogleClientSecretChange: (secret: string) => void;
 }
 
 // ─── Model fetching helpers ─────────────────────────────────────────────────
@@ -248,16 +252,19 @@ export default function Settings({
   groqModel, geminiModel, openRouterModel, nvidiaModel,
   openRouterApiKey, provider, hotkey,
   localEndpoint, localModel, localApiKey,
+  googleClientId, googleClientSecret,
   onGroqKeyChange, onGeminiKeyChange, onNvidiaKeyChange,
   onGroqModelChange, onGeminiModelChange, onOpenRouterModelChange, onNvidiaModelChange,
   onOpenRouterKeyChange, onProviderChange, onHotkeyChange,
   onLocalEndpointChange, onLocalModelChange, onLocalApiKeyChange,
+  onGoogleClientIdChange, onGoogleClientSecretChange,
 }: SettingsProps) {
   const [showGroq, setShowGroq] = useState(false);
   const [showGemini, setShowGemini] = useState(false);
   const [showNvidia, setShowNvidia] = useState(false);
   const [showOpenRouter, setShowOpenRouter] = useState(false);
   const [showLocalKey, setShowLocalKey] = useState(false);
+  const [showGoogleSecret, setShowGoogleSecret] = useState(false);
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -361,6 +368,50 @@ export default function Settings({
                   rel="noopener noreferrer"
                   className="text-nexu-primary-hover hover:underline"
                 >Get your API key</a>
+              </p>
+            </div>
+
+            {/* Google OAuth Client ID */}
+            <div>
+              <label className="block text-xs text-nexu-text-muted mb-1.5">Google Client ID</label>
+              <input
+                type="text"
+                placeholder="123456789-xxx.apps.googleusercontent.com"
+                value={googleClientId}
+                onChange={(e) => onGoogleClientIdChange(e.target.value)}
+                className="w-full bg-nexu-bg border border-nexu-border rounded-lg pl-3 pr-3 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
+              />
+            </div>
+
+            {/* Google OAuth Client Secret */}
+            <div>
+              <label className="block text-xs text-nexu-text-muted mb-1.5">Google Client Secret</label>
+              <div className="relative">
+                <input
+                  type={showGoogleSecret ? 'text' : 'password'}
+                  placeholder="GOCSPX-..."
+                  value={googleClientSecret}
+                  onChange={(e) => onGoogleClientSecretChange(e.target.value)}
+                  className="w-full bg-nexu-bg border border-nexu-border rounded-lg pl-3 pr-10 py-2 text-sm text-nexu-text placeholder-nexu-text-muted outline-none focus:border-nexu-primary/50 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGoogleSecret(!showGoogleSecret)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-nexu-surface-2 border border-nexu-border text-nexu-text-dim hover:text-nexu-text hover:border-nexu-text-muted transition-colors cursor-pointer"
+                  title={showGoogleSecret ? 'Hide secret' : 'Show secret'}
+                >
+                  {showGoogleSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <p className="text-xs text-nexu-text-muted mt-1">
+                Required for Gmail connection. Get these from{' '}
+                <a
+                  href="https://console.cloud.google.com/apis/credentials"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-nexu-primary-hover hover:underline"
+                >Google Cloud Console</a>
+                {' '}(Create OAuth 2.0 Desktop credentials with Gmail API enabled)
               </p>
             </div>
           </div>

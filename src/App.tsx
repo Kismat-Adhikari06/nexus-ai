@@ -28,6 +28,8 @@ const LS_GROQ_MODEL = 'nexu:groqModel';
 const LS_GEMINI_MODEL = 'nexu:geminiModel';
 const LS_OPENROUTER_MODEL = 'nexu:openRouterModel';
 const LS_THEME = 'nexu:theme';
+const LS_GOOGLE_CLIENT_ID = 'nexu:googleClientId';
+const LS_GOOGLE_CLIENT_SECRET = 'nexu:googleClientSecret';
 
 function generateId() {
   return crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -85,6 +87,8 @@ export default function App() {
   const [geminiModel, setGeminiModel] = useState(() => loadSetting(LS_GEMINI_MODEL, 'gemini-2.0-flash'));
   const [openRouterModel, setOpenRouterModel] = useState(() => loadSetting(LS_OPENROUTER_MODEL, 'deepseek/deepseek-chat'));
   const [theme, setTheme] = useState<string>(() => loadSetting(LS_THEME, 'dark'));
+  const [googleClientId, setGoogleClientId] = useState(() => loadSetting(LS_GOOGLE_CLIENT_ID, ''));
+  const [googleClientSecret, setGoogleClientSecret] = useState(() => loadSetting(LS_GOOGLE_CLIENT_SECRET, ''));
   const [hotkey, setHotkey] = useState('F4');
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
@@ -156,6 +160,8 @@ export default function App() {
   useEffect(() => { saveSetting(LS_GEMINI_MODEL, geminiModel); }, [geminiModel]);
   useEffect(() => { saveSetting(LS_OPENROUTER_MODEL, openRouterModel); }, [openRouterModel]);
   useEffect(() => { saveSetting(LS_THEME, theme); }, [theme]);
+  useEffect(() => { saveSetting(LS_GOOGLE_CLIENT_ID, googleClientId); }, [googleClientId]);
+  useEffect(() => { saveSetting(LS_GOOGLE_CLIENT_SECRET, googleClientSecret); }, [googleClientSecret]);
 
   // Apply theme to <html>
   useEffect(() => {
@@ -442,6 +448,8 @@ export default function App() {
             localEndpoint={localEndpoint}
             localModel={localModel}
             localApiKey={localApiKey}
+            googleClientId={googleClientId}
+            googleClientSecret={googleClientSecret}
             onGroqKeyChange={setGroqApiKey}
             onGeminiKeyChange={setGeminiApiKey}
             onNvidiaKeyChange={setNvidiaApiKey}
@@ -450,6 +458,8 @@ export default function App() {
             onOpenRouterModelChange={setOpenRouterModel}
             onNvidiaModelChange={setNvidiaModel}
             onOpenRouterKeyChange={setOpenRouterApiKey}
+            onGoogleClientIdChange={setGoogleClientId}
+            onGoogleClientSecretChange={setGoogleClientSecret}
             onProviderChange={setProvider}
             onHotkeyChange={setHotkey}
             onLocalEndpointChange={setLocalEndpoint}

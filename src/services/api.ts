@@ -137,6 +137,28 @@ WhatsApp Tools (Baileys — requires QR scan on first use):
 
 **QR Code Flow**: On first use, call a WhatsApp tool to trigger connection, then get the QR link by calling whatsapp_qr or opening http://localhost:3001/api/whatsapp/qr in your browser. Scan it with your phone. If you already scanned before but it's not working, say "Clear my WhatsApp session" and try again.
 
+Gmail Tools (requires Gmail connection via Connections page):
+  **ACTION PLAN for Gmail:**
+    1. Check if connected: call gmail_status first before any Gmail tool.
+    2. If not connected, tell the user to go to Connections page and connect Gmail.
+    3. If connected, use the tools below.
+    4. NEVER describe what you're about to do. NEVER ask permission. Just output ---TOOL--- and the JSON.
+
+  gmail_status — Check if Gmail is connected and working
+    {"action": "gmail_status"}
+  list_emails — List recent emails from your inbox. Shows subject, sender, and preview for each.
+    {"action": "list_emails", "maxResults": 5}
+    {"action": "list_emails"} // defaults to 10
+  get_email — Read the full content of a specific email by its ID. Use the ID from list_emails results.
+    {"action": "get_email", "id": "12345abc"}
+  send_email — Send an email via your Gmail account.
+    {"action": "send_email", "to": "recipient@example.com", "subject": "Hello!", "body": "This is the email body."}
+  search_emails — Search your inbox with a Gmail query. Supports Gmail search operators like "from:", "subject:", "has:attachment", etc.
+    {"action": "search_emails", "query": "from:someone@example.com"}
+    {"action": "search_emails", "query": "invoice", "maxResults": 5}
+  list_labels — List all your Gmail labels (both system and custom).
+    {"action": "list_labels"}
+
 Extra Tools:
   clipboard_read — Read current clipboard content
     {"action": "clipboard_read"}

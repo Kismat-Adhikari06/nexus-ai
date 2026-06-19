@@ -5,6 +5,7 @@ import Chat from './components/Chat';
 import MemoryView from './components/MemoryView';
 import Settings from './components/Settings';
 import Connections from './components/Connections';
+import Gmail from './components/Gmail';
 import ChatInput from './components/ChatInput';
 import LoginPage from './components/LoginPage';
 import { useVoiceRecorder } from './hooks/useVoiceRecorder';
@@ -167,6 +168,15 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // Listen for navigate custom events (from Gmail page "Go to Connections" link)
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      if (e.detail === 'connections') setActiveView('connections');
+    };
+    window.addEventListener('navigate', handler as EventListener);
+    return () => window.removeEventListener('navigate', handler as EventListener);
+  }, []);
 
   const { isRecording, startRecording, stopRecording, onRecordingComplete } = useVoiceRecorder();
 
@@ -420,7 +430,9 @@ export default function App() {
           onDeleteConversation={handleDeleteConversation}
           onLogout={handleLogout}
         />
-        {activeView === 'chat' ? (
+        {activeView === 'gmail' ? (
+          <Gmail />
+        ) : activeView === 'chat' ? (
           <div className="flex-1 flex flex-col">
             <Chat messages={messages} status={status} />
             <ChatInput

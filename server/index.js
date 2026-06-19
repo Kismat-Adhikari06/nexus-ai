@@ -415,6 +415,178 @@ app.post('/api/gmail/disconnect', async (_, res) => {
   }
 });
 
+// ─── Gmail API tool routes ──────────────────────────────────────────────────
+
+app.post('/api/gmail/list', async (req, res) => {
+  try {
+    const max = parseInt(req.body.maxResults) || 10;
+    res.json({ result: await gmail.listEmails(max) });
+  } catch (e) {
+    res.json({ result: `Error: ${e.message}` });
+  }
+});
+
+app.post('/api/gmail/get', async (req, res) => {
+  try {
+    res.json({ result: await gmail.getEmail(req.body.id) });
+  } catch (e) {
+    res.json({ result: `Error: ${e.message}` });
+  }
+});
+
+app.post('/api/gmail/send', async (req, res) => {
+  try {
+    res.json({ result: await gmail.sendEmail(req.body.to, req.body.subject, req.body.body) });
+  } catch (e) {
+    res.json({ result: `Error: ${e.message}` });
+  }
+});
+
+app.post('/api/gmail/search', async (req, res) => {
+  try {
+    const max = parseInt(req.body.maxResults) || 10;
+    res.json({ result: await gmail.searchEmails(req.body.query, max) });
+  } catch (e) {
+    res.json({ result: `Error: ${e.message}` });
+  }
+});
+
+app.get('/api/gmail/labels', async (_, res) => {
+  try {
+    res.json({ result: await gmail.listLabels() });
+  } catch (e) {
+    res.json({ result: `Error: ${e.message}` });
+  }
+});
+
+// Gmail profile (connected email address)
+app.get('/api/gmail/profile', async (_, res) => {
+  try {
+    res.json({ result: await gmail.getProfile() });
+  } catch (e) {
+    res.json({ result: { error: e.message } });
+  }
+});
+
+// Gmail inbox — structured JSON for the Gmail UI page (with pagination)
+app.get('/api/gmail/inbox', async (req, res) => {
+  try {
+    const max = parseInt(req.query.max) || 30;
+    const pageToken = req.query.pageToken || null;
+    res.json({ result: await gmail.listEmailsRaw(max, pageToken) });
+  } catch (e) {
+    res.json({ result: { error: e.message } });
+  }
+});
+
+// Gmail email detail — structured JSON for the Gmail UI page
+app.post('/api/gmail/email-detail', async (req, res) => {
+  try {
+    res.json({ result: await gmail.getEmailRaw(req.body.id) });
+  } catch (e) {
+    res.json({ result: { error: e.message } });
+  }
+});
+
+// Gmail search — structured JSON for the Gmail UI search bar
+app.post('/api/gmail/search-json', async (req, res) => {
+  try {
+    const max = parseInt(req.body.maxResults) || 20;
+    res.json({ result: await gmail.searchEmailsRaw(req.body.query, max) });
+  } catch (e) {
+    res.json({ result: { error: e.message } });
+  }
+});
+
+// Gmail AI reply generation — uses the configured AI provider to draft a reply
+app.post('/api/gmail/generate-reply', async (req, res) => {
+  try {
+    const { emailContent, provider, apiKey, model } = req.body;
+    if (!emailContent) return res.json({ result: { error: 'Email content is required' } });
+    if (!apiKey) return res.json({ result: { error: 'API key is required' } });
+
+    const prompt = `Write a professional, helpful reply to this email. Be concise and natural.\n\nOnly return the reply text — no explanations, no opening lines like "Here's your reply:".\n\nEmail to reply to:\n---\n${emailContent.substring(0, 3000)}\n---`;
+
+    let reply = '';
+
+    if (provider === 'groq') {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model || 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: 'You are a helpful email assistant. Write clear, professional email replies.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        }),
+      });
+      if (!r.ok) throw new Error(`Groq API error: ${await r.text()}`);
+      reply = (await r.json()).choices[0].message.content;
+
+    } else if (provider === 'gemini') {
+      const geminiModel = model || 'gemini-2.0-flash';
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: 'You are a helpful email assistant. Write clear, professional email replies.' }] },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 500 },
+        }),
+      });
+      if (!r.ok) throw new Error(`Gemini API error: ${await r.text()}`);
+      reply = (await r.json()).candidates[0].content.parts[0].text;
+
+    } else if (provider === 'openrouter') {
+      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://nexu.app',
+          'X-Title': 'Nexu',
+        },
+        body: JSON.stringify({
+          model: model || 'deepseek/deepseek-chat',
+          messages: [
+            { role: 'system', content: 'You are a helpful email assistant. Write clear, professional email replies.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        }),
+      });
+      if (!r.ok) throw new Error(`OpenRouter API error: ${await r.text()}`);
+      reply = (await r.json()).choices[0].message.content;
+
+    } else {
+      // Default to groq if unknown provider
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model || 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: 'You are a helpful email assistant. Write clear, professional email replies.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        }),
+      });
+      if (!r.ok) throw new Error(`Groq API error: ${await r.text()}`);
+      reply = (await r.json()).choices[0].message.content;
+    }
+
+    res.json({ result: reply.trim() });
+  } catch (e) {
+    res.json({ result: { error: e.message } });
+  }
+});
+
 // WhatsApp connect (triggers connection + QR code generation)
 app.post('/api/whatsapp/connect', async (_, res) => {
   try {
@@ -626,6 +798,13 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
       whatsapp_unpin: ['contact'],
       whatsapp_mark_read: ['contact'],
       whatsapp_report: ['contact'],
+      // Gmail tools
+      list_emails: ['maxResults'],
+      get_email: ['id'],
+      send_email: ['to', 'subject', 'body'],
+      search_emails: ['query', 'maxResults'],
+      list_labels: [],
+      gmail_status: [],
     };
 
     const toolRegistry = {
@@ -723,6 +902,13 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
       whatsapp_unpin: (contact) => whatsapp.unpinChat(String(contact)),
       whatsapp_mark_read: (contact) => whatsapp.markAsRead(String(contact)),
       whatsapp_report: (contact) => whatsapp.reportContact(String(contact)),
+      // Gmail tools
+      list_emails: (maxResults) => gmail.listEmails(maxResults != null ? Number(maxResults) : 10),
+      get_email: (id) => gmail.getEmail(String(id)),
+      send_email: (to, subject, body) => gmail.sendEmail(String(to), String(subject || ''), String(body || '')),
+      search_emails: (query, maxResults) => gmail.searchEmails(String(query), maxResults != null ? Number(maxResults) : 10),
+      list_labels: () => gmail.listLabels(),
+      gmail_status: () => gmail.getStatus(),
     };
 
     async function executeTool(call) {

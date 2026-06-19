@@ -119,3 +119,9 @@ export function getGmailAuthUrl(clientId: string, clientSecret: string) {
 export function gmailStatus() { return callBackend('/api/gmail/status'); }
 export function getGmailAuthState() { return callBackend('/api/gmail/auth-state'); }
 export function disconnectGmail() { return callBackend('/api/gmail/disconnect', {}); }
+export function listGmailEmails(maxResults?: number) { return callBackend('/api/gmail/list', { maxResults: maxResults || 10 }); }
+export function getGmailEmail(id: string) { return callBackend('/api/gmail/get', { id }); }
+export function sendGmailEmail(to: string, subject: string, body: string) { return callBackend('/api/gmail/send', { to, subject, body }); }
+export function searchGmailEmails(query: string, maxResults?: number) { return callBackend('/api/gmail/search', { query, maxResults: maxResults || 10 }); }
+export function listGmailLabels() { return callBackend('/api/gmail/labels'); }
+export function getGmailProfile() { return callBackend('/api/gmail/profile'); }

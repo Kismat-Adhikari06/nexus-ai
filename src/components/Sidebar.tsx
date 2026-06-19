@@ -1,4 +1,4 @@
-import { MessageSquare, Settings, Database, Plus, Link2, Trash2, LogOut } from 'lucide-react';
+import { MessageSquare, Settings, Database, Plus, Link2, Trash2, LogOut, Mail } from 'lucide-react';
 import type { AppView, Conversation } from '../types';
 
 interface SidebarProps {
@@ -14,6 +14,7 @@ interface SidebarProps {
 
 const navItems: { view: AppView; label: string; icon: React.ReactNode }[] = [
   { view: 'chat', label: 'Chat', icon: <MessageSquare size={18} /> },
+  { view: 'gmail', label: 'Gmail', icon: <Mail size={18} /> },
   { view: 'memory', label: 'Memory', icon: <Database size={18} /> },
   { view: 'connections', label: 'Connections', icon: <Link2 size={18} /> },
   { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
